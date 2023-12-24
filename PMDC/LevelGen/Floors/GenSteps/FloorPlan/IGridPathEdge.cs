@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using RogueElements;
 
-namespace PMDC.LevelGen
+namespace RogueElements
 {
     public interface IGridPathEdge
     {
@@ -188,7 +187,7 @@ namespace PMDC.LevelGen
                 numRooms = edgeLength;
             }
 
-            SpawnList<int> roomChoices = new SpawnList<int>(true);
+            SpawnList<int> roomChoices = new SpawnList<int>();
 
             for (int i = 0; i < edgeLength; i++)
             {
@@ -197,7 +196,7 @@ namespace PMDC.LevelGen
 
             for (int i = 0; i < numRooms; i++)
             {
-                roomIndexes.Add(roomChoices.Pick(rand));
+                roomIndexes.Add(roomChoices.Pick(rand, true));
             }
 
             for (int i = 0; i < edgeLength; i++)
