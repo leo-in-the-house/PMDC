@@ -8,7 +8,7 @@ using RogueEssence.LevelGen;
 namespace PMDC.LevelGen
 {
     /// <summary>
-    /// Sets tile in a room to a certain value.
+    /// Sets terrain in a room to a certain value.
     /// </summary>
     /// <typeparam name="T"></typeparam>
     [Serializable]
