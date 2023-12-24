@@ -8,7 +8,6 @@ using RogueEssence.Data;
 using RogueEssence.Dev;
 using Newtonsoft.Json;
 using PMDC.Dungeon;
-using System.Runtime.Serialization;
 
 namespace PMDC.Data
 {
@@ -368,34 +367,16 @@ namespace PMDC.Data
     {
         public int ReqForm;
 
-        public HashSet<int> ReqForms;
-
-        public EvoForm()
+        public EvoForm() { }
+        public EvoForm(int form)
         {
-            ReqForms = new HashSet<int>();
-        }
-        public EvoForm(params int[] forms)
-        {
-            ReqForms = new HashSet<int>();
-            foreach(int form in forms)
-                ReqForms.Add(form);
+            ReqForm = form;
         }
 
         public override bool IsHardReq() { return true; }
         public override bool GetReq(Character character, bool inDungeon)
         {
-            return ReqForms.Contains(character.BaseForm.Form);
-        }
-
-        [OnDeserialized]
-        internal void OnDeserializedMethod(StreamingContext context)
-        {
-            //TODO: remove on v1.1
-            if (Serializer.OldVersion < new Version(0, 7, 22))
-            {
-                ReqForms = new HashSet<int>();
-                ReqForms.Add(ReqForm);
-            }
+            return character.BaseForm.Form == ReqForm;
         }
     }
     [Serializable]
