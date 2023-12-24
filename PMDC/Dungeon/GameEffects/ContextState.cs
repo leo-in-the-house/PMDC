@@ -8,52 +8,23 @@ using RogueEssence.Dev;
 
 namespace PMDC.Dungeon
 {
-    /// <summary>
-    /// Attacker's attacking stat
-    /// </summary>
+
     [Serializable]
-    public class UserAtkStat : ContextIntState
+    public class AttackerStat : ContextIntState
     {
-        public UserAtkStat() { }
-        public UserAtkStat(int count) : base(count) { }
-        protected UserAtkStat(UserAtkStat other) : base(other) { }
-        public override GameplayState Clone() { return new UserAtkStat(this); }
+        public AttackerStat() { }
+        public AttackerStat(int count) : base(count) { }
+        protected AttackerStat(AttackerStat other) : base(other) { }
+        public override GameplayState Clone() { return new AttackerStat(this); }
     }
 
-    /// <summary>
-    /// Target's defensive stat
-    /// </summary>
     [Serializable]
-    public class TargetDefStat : ContextIntState
+    public class TargetStat : ContextIntState
     {
-        public TargetDefStat() { }
-        public TargetDefStat(int count) : base(count) { }
-        protected TargetDefStat(TargetDefStat other) : base(other) { }
-        public override GameplayState Clone() { return new TargetDefStat(this); }
-    }
-
-    /// <summary>
-    /// Attacker's hit rate stat
-    /// </summary>
-    [Serializable]
-    public class UserHitStat : ContextIntState
-    {
-        public UserHitStat() { }
-        public UserHitStat(int count) : base(count) { }
-        protected UserHitStat(UserHitStat other) : base(other) { }
-        public override GameplayState Clone() { return new UserHitStat(this); }
-    }
-
-    /// <summary>
-    /// Target's dodge rate stat
-    /// </summary>
-    [Serializable]
-    public class TargetEvadeStat : ContextIntState
-    {
-        public TargetEvadeStat() { }
-        public TargetEvadeStat(int count) : base(count) { }
-        protected TargetEvadeStat(TargetEvadeStat other) : base(other) { }
-        public override GameplayState Clone() { return new TargetEvadeStat(this); }
+        public TargetStat() { }
+        public TargetStat(int count) : base(count) { }
+        protected TargetStat(TargetStat other) : base(other) { }
+        public override GameplayState Clone() { return new TargetStat(this); }
     }
 
     [Serializable]
