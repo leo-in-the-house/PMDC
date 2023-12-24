@@ -13,7 +13,6 @@ namespace PMDC.LevelGen
 {
     /// <summary>
     /// Sets various attributes about the map.
-    /// Including the music, time limit, and darkness of the floor. 
     /// </summary>
     /// <typeparam name="T"></typeparam>
     [Serializable]
@@ -86,7 +85,7 @@ namespace PMDC.LevelGen
     }
 
     /// <summary>
-    /// Makes the map name show up before fading in.
+    /// Sets only time limit for the map.
     /// </summary>
     /// <typeparam name="T"></typeparam>
     [Serializable]
