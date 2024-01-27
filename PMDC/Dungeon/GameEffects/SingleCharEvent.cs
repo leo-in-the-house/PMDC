@@ -1328,10 +1328,11 @@ namespace PMDC.Dungeon
                         MonsterFormData monsterForm = (MonsterFormData)monsterData.Forms[context.User.BaseForm.Form];
                         //if (DataManager.Instance.CurrentReplay != null)
                         //{
-                        //    using (StreamWriter writer = new StreamWriter(DiagManager.LOG_PATH + "EXP.txt", true))
+                        //    string filename = Path.GetFileNameWithoutExtension(DataManager.Instance.CurrentReplay.RecordDir);
+                        //    using (StreamWriter writer = new StreamWriter(DiagManager.LOG_PATH + "EXP_"+ filename + ".txt", true))
                         //        writer.WriteLine(String.Format("{0},{1},{2},{3},{4}", ZoneManager.Instance.CurrentZoneID, ZoneManager.Instance.CurrentMapID.Segment, ZoneManager.Instance.CurrentMapID.ID, monsterForm.ExpYield, context.User.Level));
                         //}
-                        
+
                         for (int ii = 0; ii < DungeonScene.Instance.ActiveTeam.Players.Count; ii++)
                         {
                             if (ii >= DungeonScene.Instance.GainedEXP.Count)
@@ -7000,6 +7001,32 @@ namespace PMDC.Dungeon
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, SingleCharContext context)
         {
             if (context.User == null)
+                yield return CoroutineManager.Instance.StartCoroutine(BaseEvent.Apply(owner, ownerChar, context));
+        }
+    }
+
+
+
+    [Serializable]
+    public class PlayerCharEvent : SingleCharEvent
+    {
+        public SingleCharEvent BaseEvent;
+
+        public PlayerCharEvent()
+        { }
+        public PlayerCharEvent(SingleCharEvent baseEvent)
+        {
+            BaseEvent = baseEvent;
+        }
+        protected PlayerCharEvent(PlayerCharEvent other)
+        {
+            BaseEvent = (SingleCharEvent)other.BaseEvent.Clone();
+        }
+        public override GameEvent Clone() { return new PlayerCharEvent(this); }
+
+        public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, SingleCharContext context)
+        {
+            if (context.User.MemberTeam == DungeonScene.Instance.ActiveTeam)
                 yield return CoroutineManager.Instance.StartCoroutine(BaseEvent.Apply(owner, ownerChar, context));
         }
     }
