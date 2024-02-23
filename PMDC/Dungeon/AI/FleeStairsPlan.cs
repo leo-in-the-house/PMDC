@@ -4,21 +4,24 @@ using RogueElements;
 using RogueEssence;
 using RogueEssence.Dungeon;
 using RogueEssence.Data;
+using RogueEssence.Dev;
 
 namespace PMDC.Dungeon
 {
     [Serializable]
     public class FleeStairsPlan : AIPlan
     {
-        private List<string> stairIds = new List<string> { 
-            "stairs_back_down", "stairs_back_up", "stairs_exit_down", 
-            "stairs_exit_up", "stairs_go_up", "stairs_go_down"
-        };
+        [DataType(0, DataManager.DataType.Tile, false)]
+        public HashSet<string> StairIds;
+        public FleeStairsPlan(AIFlags iq, HashSet<string> destLocations) : base(iq)
+        {
+            StairIds = destLocations;
+        }
 
-        public FleeStairsPlan() { }
-
-        public FleeStairsPlan(AIFlags iq) : base(iq) { }
-        protected FleeStairsPlan(FleeStairsPlan other) : base(other) { }
+        protected FleeStairsPlan(FleeStairsPlan other) : base(other)
+        {
+            StairIds = other.StairIds;
+        }
         public override BasePlan CreateNew() { return new FleeStairsPlan(this); }
 
         public override GameAction Think(Character controlledChar, bool preThink, IRandom rand)
@@ -39,7 +42,7 @@ namespace PMDC.Dungeon
                     Loc loc = new Loc(xx, yy);
                     
                     Tile tile = map.GetTile(loc);
-                    if (tile != null && tile.Effect.Revealed && stairIds.Contains(tile.Effect.ID) && controlledChar.CanSeeLoc(loc, controlledChar.GetCharSight()))
+                    if (tile != null && tile.Effect.Revealed && StairIds.Contains(tile.Effect.ID) && controlledChar.CanSeeLoc(loc, controlledChar.GetCharSight()))
                     {
                         //do nothing if positioned at the stairs
                         if (loc == controlledChar.CharLoc)
@@ -116,15 +119,7 @@ namespace PMDC.Dungeon
             bool blocked = Grid.IsDirBlocked(controlledChar.CharLoc, testDir,
                 (Loc testLoc) =>
                 {
-
-                    if (ZoneManager.Instance.CurrentMap.TileBlocked(testLoc, controlledChar.Mobility))
-                        return true;
-
-                    if (BlockedByTrap(controlledChar, testLoc))
-                        return true;
-                    if (BlockedByTerrain(controlledChar, testLoc))
-                        return true;
-                    if (BlockedByHazard(controlledChar, testLoc))
+                    if (IsPathBlocked(controlledChar, testLoc))
                         return true;
 
                     if (ZoneManager.Instance.CurrentMap.WrapLoc(testLoc) != stairLoc && respectPeers)

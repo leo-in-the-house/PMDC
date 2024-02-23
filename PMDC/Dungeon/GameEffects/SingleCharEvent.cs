@@ -16,6 +16,7 @@ using System.Linq;
 using Newtonsoft.Json;
 using System.Runtime.Serialization;
 using System.IO;
+using PMDC.LevelGen;
 
 namespace PMDC.Dungeon
 {
@@ -2015,7 +2016,7 @@ namespace PMDC.Dungeon
             foreach (AnimEvent anim in Anims)
                 yield return CoroutineManager.Instance.StartCoroutine(anim.Apply(owner, ownerChar, context));
 
-            int stack = ((StatusEffect)owner).StatusStates.GetWithDefault<StackState>().Stack;
+            int stack = ((StatusEffect)owner).StatusStates.GetWithDefault<CountState>().Count;
             int trapdmg = Math.Max(1, context.User.MaxHP * stack / 16);
             yield return CoroutineManager.Instance.StartCoroutine(context.User.InflictDamage(trapdmg));
             
@@ -3932,7 +3933,8 @@ namespace PMDC.Dungeon
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, SingleCharContext context)
         {
             //only if part of the team, and not the leader
-            if (context.User != null && context.User.MemberTeam == DungeonScene.Instance.ActiveTeam && DungeonScene.Instance.ActiveTeam.Leader != context.User)
+            if (context.User != null && context.User.MemberTeam == DungeonScene.Instance.ActiveTeam
+                && DungeonScene.Instance.ActiveTeam.Leader != context.User && !context.User.MemberTeam.GetCharIndex(context.User).Guest)
             {
                 if (CheckSpecies.Contains(context.User.BaseForm.Species))
                 {
@@ -3981,49 +3983,52 @@ namespace PMDC.Dungeon
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, SingleCharContext context)
         {
-            if (context.User.MemberTeam == DungeonScene.Instance.ActiveTeam)
+            // Only player team, and do not include guests
+            if (context.User.MemberTeam != DungeonScene.Instance.ActiveTeam)
+                yield break;
+            if (context.User.MemberTeam.GetCharIndex(context.User).Guest)
+                yield break;
+
+            CharAnimation standAnim = new CharAnimIdle(context.User.CharLoc, context.User.CharDir);
+            standAnim.MajorAnim = true;
+            yield return CoroutineManager.Instance.StartCoroutine(context.User.StartAnim(standAnim));
+
+            if (DataManager.Instance.CurrentReplay != null)
             {
-                CharAnimation standAnim = new CharAnimIdle(context.User.CharLoc, context.User.CharDir);
-                standAnim.MajorAnim = true;
-                yield return CoroutineManager.Instance.StartCoroutine(context.User.StartAnim(standAnim));
-
-                if (DataManager.Instance.CurrentReplay != null)
-                {
-                    int index = DataManager.Instance.CurrentReplay.ReadUI();
-                    if (index > -1)
-                    {
-                        string currentSong = GameManager.Instance.Song;
-                        GameManager.Instance.BGM("", true);
-
-                        yield return CoroutineManager.Instance.StartCoroutine(beginEvo(context.User, index));
-
-                        GameManager.Instance.BGM(currentSong, true);
-                    }
-                }
-                else
+                int index = DataManager.Instance.CurrentReplay.ReadUI();
+                if (index > -1)
                 {
                     string currentSong = GameManager.Instance.Song;
                     GameManager.Instance.BGM("", true);
 
-                    yield return new WaitForFrames(GameManager.Instance.ModifyBattleSpeed(20));
-
-                    int index = -1;
-
-                    yield return CoroutineManager.Instance.StartCoroutine(MenuManager.Instance.SetDialogue(Text.FormatGrammar(new StringKey("DLG_EVO_INTRO").ToLocal())));
-                    yield return CoroutineManager.Instance.StartCoroutine(MenuManager.Instance.ProcessMenuCoroutine(createEvoQuestion(context.User, (int slot) => { index = slot; })));
-
-                    if (DataManager.Instance.CurrentReplay == null)
-                        DataManager.Instance.LogUIPlay(index);
-
-                    if (index > -1)
-                        yield return CoroutineManager.Instance.StartCoroutine(beginEvo(context.User, index));
-
-                    yield return CoroutineManager.Instance.StartCoroutine(MenuManager.Instance.SetDialogue(Text.FormatGrammar(new StringKey("DLG_EVO_END").ToLocal())));
+                    yield return CoroutineManager.Instance.StartCoroutine(beginEvo(context.User, index));
 
                     GameManager.Instance.BGM(currentSong, true);
-
-                    yield return new WaitForFrames(1);
                 }
+            }
+            else
+            {
+                string currentSong = GameManager.Instance.Song;
+                GameManager.Instance.BGM("", true);
+
+                yield return new WaitForFrames(GameManager.Instance.ModifyBattleSpeed(20));
+
+                int index = -1;
+
+                yield return CoroutineManager.Instance.StartCoroutine(MenuManager.Instance.SetDialogue(Text.FormatGrammar(new StringKey("DLG_EVO_INTRO").ToLocal())));
+                yield return CoroutineManager.Instance.StartCoroutine(MenuManager.Instance.ProcessMenuCoroutine(createEvoQuestion(context.User, (int slot) => { index = slot; })));
+
+                if (DataManager.Instance.CurrentReplay == null)
+                    DataManager.Instance.LogUIPlay(index);
+
+                if (index > -1)
+                    yield return CoroutineManager.Instance.StartCoroutine(beginEvo(context.User, index));
+
+                yield return CoroutineManager.Instance.StartCoroutine(MenuManager.Instance.SetDialogue(Text.FormatGrammar(new StringKey("DLG_EVO_END").ToLocal())));
+
+                GameManager.Instance.BGM(currentSong, true);
+
+                yield return new WaitForFrames(1);
             }
         }
 
@@ -6206,6 +6211,7 @@ namespace PMDC.Dungeon
     [Serializable]
     public abstract class MonsterHouseEvent : SingleCharEvent
     {
+        protected virtual IEnumerator<YieldInstruction> FailSpawn(GameEventOwner owner, Character ownerChar, SingleCharContext context) { yield break; }
         protected abstract Rect GetBounds(GameEventOwner owner, Character ownerChar, Character character);
         protected abstract List<MobSpawn> GetMonsters(GameEventOwner owner, Character ownerChar, Character character);
         protected abstract bool NeedTurnEnd { get; }
@@ -6215,12 +6221,6 @@ namespace PMDC.Dungeon
             yield return new WaitUntil(DungeonScene.Instance.AnimationsOver);
 
             Rect bounds = GetBounds(owner, ownerChar, context.User);
-
-            //it's a monster house!
-            DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_MONSTER_HOUSE").ToLocal()));
-            //kick up the music.
-            GameManager.Instance.BGM("", false);
-            GameManager.Instance.BGM(GraphicsManager.MonsterBGM, false);
 
             //spawn all contents with the landing animation
             //spawn list is specified by the state tags.  same as items
@@ -6237,6 +6237,18 @@ namespace PMDC.Dungeon
 
                     return true;
                 });
+
+            if (mobs.Count > 0 && freeTiles.Count > 0)
+            {
+                //it's a monster house!
+                DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_MONSTER_HOUSE").ToLocal()));
+                //kick up the music.
+                GameManager.Instance.BGM("", false);
+                GameManager.Instance.BGM(GraphicsManager.MonsterBGM, false);
+            }
+            else
+                yield return CoroutineManager.Instance.StartCoroutine(FailSpawn(owner, ownerChar, context));
+
             //spawn them
             List<Character> respawns = new List<Character>();
             for (int ii = 0; ii < mobs.Count; ii++)
@@ -6319,6 +6331,85 @@ namespace PMDC.Dungeon
         protected override List<MobSpawn> GetMonsters(GameEventOwner owner, Character ownerChar, Character character)
         {
             return ((EffectTile)owner).TileStates.GetWithDefault<MobSpawnState>().Spawns;
+        }
+    }
+
+    [Serializable]
+    public class MonsterHouseOwnerEvent : MonsterHouseEvent
+    {
+        /// <summary>
+        /// Number of monsters to spawn.
+        /// </summary>
+        public RandRange MobRange;
+
+        /// <summary>
+        /// Percent of monsters carrying items.
+        /// </summary>
+        public int ItemPercent;
+
+        //activated by user, get mob spawn data from map and locally
+        public MonsterHouseOwnerEvent()
+        { }
+        public MonsterHouseOwnerEvent(RandRange mobRange, int itemPercent)
+        {
+            MobRange = mobRange;
+            ItemPercent = itemPercent;
+        }
+        public MonsterHouseOwnerEvent(MonsterHouseOwnerEvent other)
+        {
+            MobRange = other.MobRange;
+            ItemPercent = other.ItemPercent;
+        }
+        public override GameEvent Clone() { return new MonsterHouseOwnerEvent(this); }
+        protected override bool NeedTurnEnd { get { return true; } }
+
+        protected override IEnumerator<YieldInstruction> FailSpawn(GameEventOwner owner, Character ownerChar, SingleCharContext context)
+        {
+            GameManager.Instance.BGM("", false);
+            yield return new WaitForFrames(GameManager.Instance.ModifyBattleSpeed(30) + 20);
+            DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_NOTHING_HAPPENED").ToLocal()));
+            GameManager.Instance.BGM(ZoneManager.Instance.CurrentMap.Music, true);
+            yield break;
+        }
+
+        protected override Rect GetBounds(GameEventOwner owner, Character ownerChar, Character character)
+        {
+            return new Rect(character.CharLoc - new Loc(5), new Loc(11));
+        }
+        protected override List<MobSpawn> GetMonsters(GameEventOwner owner, Character ownerChar, Character character)
+        {
+            Map map = ZoneManager.Instance.CurrentMap;
+            int mobCount = MobRange.Pick(map.Rand);
+            List<MobSpawn> chosenMobs = new List<MobSpawn>();
+
+            for (int ii = 0; ii < mobCount; ii++)
+            {
+                if (map.TeamSpawns.CanPick)
+                {
+                    List<MobSpawn> exampleList = map.TeamSpawns.Pick(map.Rand).ChooseSpawns(map.Rand);
+                    if (exampleList.Count > 0)
+                        chosenMobs.Add(exampleList[map.Rand.Next(exampleList.Count)]);
+                }
+            }
+
+            List<MobSpawn> houseMobs = new List<MobSpawn>();
+            foreach (MobSpawn mob in chosenMobs)
+            {
+                MobSpawn copyMob = mob.Copy();
+                if (DataManager.Instance.Save.Rand.Next(PMDC.LevelGen.MonsterHouseBaseStep<MapGenContext>.ALT_COLOR_ODDS) == 0)
+                {
+                    SkinTableState table = DataManager.Instance.UniversalEvent.UniversalStates.GetWithDefault<SkinTableState>();
+                    copyMob.BaseForm.Skin = table.AltColor;
+                }
+                if (DataManager.Instance.Save.Rand.Next(100) < ItemPercent)
+                {
+                    MobSpawnItem item = new MobSpawnItem(false);
+                    item.Items.Add(map.ItemSpawns.Pick(DataManager.Instance.Save.Rand), 10);
+                    copyMob.SpawnFeatures.Add(item);
+                }
+                houseMobs.Add(copyMob);
+            }
+            return houseMobs;
         }
     }
 

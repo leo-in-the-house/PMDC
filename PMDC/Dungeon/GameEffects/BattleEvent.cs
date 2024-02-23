@@ -222,8 +222,8 @@ namespace PMDC.Dungeon
                     //MustHitNext is to ensure that no single character can miss twice in a row
                     if (context.User.MustHitNext || DataManager.Instance.Save.Rand.Next(0, 100) < acc)
                         hit = true;
-                    context.User.MustHitNext = !hit;
                 }
+                context.User.MustHitNext = !hit;
 
                 if (hit)
                 {
@@ -365,7 +365,11 @@ namespace PMDC.Dungeon
             context.Strikes = 1;
             context.Item = new InvItem(item);
             if (entry.MaxStack > 1)
+            {
+                //TODO: Price needs to be multiplied by amount instead of dividing
+                context.Item.Price = context.Item.Price / context.Item.Amount;
                 context.Item.Amount = 1;
+            }
             context.HitboxAction = entry.UseAction.Clone();
             switch (entry.UsageType)
             {
@@ -454,7 +458,7 @@ namespace PMDC.Dungeon
             bool catchable = true;
 
 
-            if (entry.UsageType == ItemData.UseType.None || entry.UsageType == ItemData.UseType.Use || entry.UsageType == ItemData.UseType.Learn || entry.UsageType == ItemData.UseType.Box || entry.UsageType == ItemData.UseType.UseOther)
+            if (entry.UsageType == ItemData.UseType.None || entry.UsageType == ItemData.UseType.Treasure || entry.UsageType == ItemData.UseType.Use || entry.UsageType == ItemData.UseType.Learn || entry.UsageType == ItemData.UseType.Box || entry.UsageType == ItemData.UseType.UseOther)
                 defaultDmg = true;
             else if (entry.ItemStates.Contains<RecruitState>())
                 catchable = false;
@@ -488,7 +492,11 @@ namespace PMDC.Dungeon
                 context.Data.AfterActions.Add(-1, new LandItemEvent());
             context.Item = new InvItem(item);
             if (entry.MaxStack > 1)
+            {
+                //TODO: Price needs to be multiplied by amount instead of dividing
+                context.Item.Price = context.Item.Price / context.Item.Amount;
                 context.Item.Amount = 1;
+            }
             context.Strikes = 1;
             //create the action from scratch
             if (entry.ArcThrow)
@@ -5098,7 +5106,7 @@ namespace PMDC.Dungeon
 
 
     /// <summary>
-    /// Event that decreases the accuracy rate the further away the distance of the action
+    /// Event that decreases the accuracy rate at point blank
     /// </summary>
     [Serializable]
     public class EvasiveCloseUpEvent : BattleEvent
@@ -5911,6 +5919,23 @@ namespace PMDC.Dungeon
             int diff = ZoneManager.Instance.CurrentMap.GetClosestDist8(context.StrikeStartTile, context.Target.CharLoc);
             for (int ii = 0; ii < diff; ii++)
                 context.AddContextStateMult<DmgMult>(false, 1, 2);
+            yield break;
+        }
+    }
+
+    /// <summary>
+    /// Event that causes the battle action to miss if the attacker isn't due for a sure hit.
+    /// </summary>
+    [Serializable]
+    public class EvadeIfPossibleEvent : BattleEvent
+    {
+        public EvadeIfPossibleEvent() { }
+        public override GameEvent Clone() { return new EvadeIfPossibleEvent(); }
+
+        public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
+        {
+            if (!context.User.MustHitNext)
+                context.AddContextStateMult<AccMult>(false, 0, 1);
             yield break;
         }
     }
@@ -7999,12 +8024,15 @@ namespace PMDC.Dungeon
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
-            for (int ii = 0; ii < ExceptionMoves.Length; ii++)
+            if (context.ActionType == BattleActionType.Skill)
             {
-                if (context.Data.ID == ExceptionMoves[ii])
+                for (int ii = 0; ii < ExceptionMoves.Length; ii++)
                 {
-                    context.Data.HitRate = -1;
-                    yield break;
+                    if (context.Data.ID == ExceptionMoves[ii])
+                    {
+                        context.Data.HitRate = -1;
+                        yield break;
+                    }
                 }
             }
             context.AddContextStateMult<AccMult>(false, 0, 1);
@@ -8604,8 +8632,8 @@ namespace PMDC.Dungeon
 
     /// <summary>
     /// Normally raises one stat. Also raises other stats if matching type.
-    /// Matching = All stats + 2
-    /// Super-effective = All stats + 1, main stat + 2
+    /// Matching = main stat + 2, other stats + 1, 
+    /// Super-effective = main stat + 2, two other stats (top 2 of the species) + 1
     /// Normal effect = main stat + 2
     /// NVE = main stat + 1
     /// Immune = nothing
@@ -8631,6 +8659,13 @@ namespace PMDC.Dungeon
         /// </summary>
         public Stat BoostedStat;
 
+        /// <summary>
+        /// If checked, changes super-effective and matching type to the following:
+        /// Matching = All stats + 2
+        /// Super-effective = main stat + 2, other stats + 1
+        /// </summary>
+        public bool FullEffect;
+
         public VitaGummiEvent() { TargetElement = ""; }
         public VitaGummiEvent(string element, bool requireBase, Stat defaultStat)
         {
@@ -8643,13 +8678,14 @@ namespace PMDC.Dungeon
             TargetElement = other.TargetElement;
             RequireBase = other.RequireBase;
             BoostedStat = other.BoostedStat;
+            FullEffect = other.FullEffect;
         }
         public override GameEvent Clone() { return new VitaGummiEvent(this); }
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
             MonsterID formData = context.Target.BaseForm;
-            BaseMonsterForm form = DataManager.Instance.GetMonster(formData.Species).Forms[formData.Form];
+            MonsterFormData form = (MonsterFormData)DataManager.Instance.GetMonster(formData.Species).Forms[formData.Form];
 
             string element1 = context.Target.Element1;
             string element2 = context.Target.Element2;
@@ -8671,7 +8707,10 @@ namespace PMDC.Dungeon
             {
                 heal = 20;
                 mainAdd = 2;
-                subAdd = 2;
+                if (FullEffect)
+                    subAdd = 2;
+                else
+                    subAdd = 1;
                 stats.Add(Stat.HP);
                 stats.Add(Stat.Attack);
                 stats.Add(Stat.Defense);
@@ -8684,12 +8723,37 @@ namespace PMDC.Dungeon
                 heal = 15;
                 mainAdd = 2;
                 subAdd = 1;
+
                 stats.Add(Stat.HP);
                 stats.Add(Stat.Attack);
                 stats.Add(Stat.Defense);
                 stats.Add(Stat.MAtk);
                 stats.Add(Stat.MDef);
                 stats.Add(Stat.Speed);
+
+                if (!FullEffect)
+                {
+                    List<Stat> baseStats = new List<Stat>();
+                    foreach (Stat stat in stats)
+                    {
+                        if (stat == BoostedStat)
+                            continue;
+                        baseStats.Add(stat);
+                    }
+
+                    //get a sorted list of highest base stats other than the boosted stat
+                    baseStats.Sort((a, b) => form.GetBaseStat(b).CompareTo(form.GetBaseStat(a)));
+
+                    //delete the stats from the main stat list that aren't the boosted stat, or the top two in the baseStats
+                    for (int ii = stats.Count - 1; ii >= 0; ii--)
+                    {
+                        if (stats[ii] == BoostedStat)
+                            continue;
+                        if (stats[ii] == baseStats[0] || stats[ii] == baseStats[1])
+                            continue;
+                        stats.RemoveAt(ii);
+                    }
+                }
             }
             else if (typeMatchup == PreTypeEvent.NRM_2)
             {
@@ -8789,6 +8853,17 @@ namespace PMDC.Dungeon
             if (newStat - prevStat > 0)
                 DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_STAT_BOOST").ToLocal(), context.Target.GetDisplayName(false), stat.ToLocal(), (newStat - prevStat).ToString()));
         }
+
+
+        [OnDeserialized]
+        internal void OnDeserializedMethod(StreamingContext context)
+        {
+            //TODO: remove on v1.1
+            if (Serializer.OldVersion < new Version(0, 7, 25))
+            {
+                FullEffect = true;
+            }
+        }
     }
 
     /// <summary>
@@ -8808,6 +8883,11 @@ namespace PMDC.Dungeon
         /// </summary>
         public int Change;
 
+        /// <summary>
+        /// If the stat didn't change, keep adding to the stat until it does.
+        /// </summary>
+        public bool ForceDiff;
+
         public VitaminEvent() { }
         public VitaminEvent(Stat stat, int change)
         {
@@ -8818,88 +8898,138 @@ namespace PMDC.Dungeon
         {
             BoostedStat = other.BoostedStat;
             Change = other.Change;
+            ForceDiff = other.ForceDiff;
         }
         public override GameEvent Clone() { return new VitaminEvent(this); }
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
-            bool boosted = false;
+            Loc boosted = Loc.Zero;
             if (BoostedStat > Stat.None)
-                boosted |= boostStat(BoostedStat, context.Target);
+                boosted += boostStat(BoostedStat, context.Target);
             else
             {
-                boosted |= boostStat(Stat.HP, context.Target);
-                boosted |= boostStat(Stat.Attack, context.Target);
-                boosted |= boostStat(Stat.Defense, context.Target);
-                boosted |= boostStat(Stat.MAtk, context.Target);
-                boosted |= boostStat(Stat.MDef, context.Target);
-                boosted |= boostStat(Stat.Speed, context.Target);
+                boosted += boostStat(Stat.HP, context.Target);
+                boosted += boostStat(Stat.Attack, context.Target);
+                boosted += boostStat(Stat.Defense, context.Target);
+                boosted += boostStat(Stat.MAtk, context.Target);
+                boosted += boostStat(Stat.MDef, context.Target);
+                boosted += boostStat(Stat.Speed, context.Target);
             }
-            if (!boosted)
+            if (boosted.Y == 0)
                 DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_NOTHING_HAPPENED").ToLocal()));
+            else if (boosted.X == 0)
+            {
+                if (BoostedStat > Stat.None)
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_STAT_BOOST_MIN").ToLocal(), context.Target.GetDisplayName(false), BoostedStat.ToLocal()));
+                else
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_STAT_BOOST_MULTI_MIN").ToLocal(), context.Target.GetDisplayName(false)));
+            }
             yield break;
         }
 
-        private bool boostStat(Stat stat, Character target)
+        private Loc boostStat(Stat stat, Character target)
         {
             int change = Change;
 
             int prevStat = 0;
             int newStat = 0;
+            int prevBoost = 0;
+            int newBoost = 0;
 
             //continue to increment the bonus until a stat increase is seen
             switch (stat)
             {
                 case Stat.HP:
                     prevStat = target.MaxHP;
+                    prevBoost = target.MaxHPBonus;
                     target.MaxHPBonus = Math.Min(target.MaxHPBonus + change, MonsterFormData.MAX_STAT_BOOST);
-                    while (target.MaxHP == prevStat && target.MaxHPBonus < MonsterFormData.MAX_STAT_BOOST)
-                        target.MaxHPBonus++;
+                    if (ForceDiff)
+                    {
+                        while (target.MaxHP == prevStat && target.MaxHPBonus < MonsterFormData.MAX_STAT_BOOST)
+                            target.MaxHPBonus++;
+                    }
                     newStat = target.MaxHP;
+                    newBoost = target.MaxHPBonus;
                     break;
                 case Stat.Attack:
                     prevStat = target.BaseAtk;
+                    prevBoost = target.AtkBonus;
                     target.AtkBonus = Math.Min(target.AtkBonus + change, MonsterFormData.MAX_STAT_BOOST);
-                    while (target.BaseAtk == prevStat && target.AtkBonus < MonsterFormData.MAX_STAT_BOOST)
-                        target.AtkBonus++;
+                    if (ForceDiff)
+                    {
+                        while (target.BaseAtk == prevStat && target.AtkBonus < MonsterFormData.MAX_STAT_BOOST)
+                            target.AtkBonus++;
+                    }
                     newStat = target.BaseAtk;
+                    newBoost = target.AtkBonus;
                     break;
                 case Stat.Defense:
                     prevStat = target.BaseDef;
+                    prevBoost = target.DefBonus;
                     target.DefBonus = Math.Min(target.DefBonus + change, MonsterFormData.MAX_STAT_BOOST);
-                    while (target.BaseDef == prevStat && target.DefBonus < MonsterFormData.MAX_STAT_BOOST)
-                        target.DefBonus++;
+                    if (ForceDiff)
+                    {
+                        while (target.BaseDef == prevStat && target.DefBonus < MonsterFormData.MAX_STAT_BOOST)
+                            target.DefBonus++;
+                    }
                     newStat = target.BaseDef;
+                    newBoost = target.DefBonus;
                     break;
                 case Stat.MAtk:
                     prevStat = target.BaseMAtk;
+                    prevBoost = target.MAtkBonus;
                     target.MAtkBonus = Math.Min(target.MAtkBonus + change, MonsterFormData.MAX_STAT_BOOST);
-                    while (target.BaseMAtk == prevStat && target.MAtkBonus < MonsterFormData.MAX_STAT_BOOST)
-                        target.MAtkBonus++;
+                    if (ForceDiff)
+                    {
+                        while (target.BaseMAtk == prevStat && target.MAtkBonus < MonsterFormData.MAX_STAT_BOOST)
+                            target.MAtkBonus++;
+                    }
                     newStat = target.BaseMAtk;
+                    newBoost = target.MAtkBonus;
                     break;
                 case Stat.MDef:
                     prevStat = target.BaseMDef;
+                    prevBoost = target.MDefBonus;
                     target.MDefBonus = Math.Min(target.MDefBonus + change, MonsterFormData.MAX_STAT_BOOST);
-                    while (target.BaseMDef == prevStat && target.MDefBonus < MonsterFormData.MAX_STAT_BOOST)
-                        target.MDefBonus++;
+                    if (ForceDiff)
+                    {
+                        while (target.BaseMDef == prevStat && target.MDefBonus < MonsterFormData.MAX_STAT_BOOST)
+                            target.MDefBonus++;
+                    }
                     newStat = target.BaseMDef;
+                    newBoost = target.MDefBonus;
                     break;
                 case Stat.Speed:
                     prevStat = target.BaseSpeed;
+                    prevBoost = target.SpeedBonus;
                     target.SpeedBonus = Math.Min(target.SpeedBonus + change, MonsterFormData.MAX_STAT_BOOST);
-                    while (target.BaseSpeed == prevStat && target.SpeedBonus < MonsterFormData.MAX_STAT_BOOST)
-                        target.SpeedBonus++;
+                    if (ForceDiff)
+                    {
+                        while (target.BaseSpeed == prevStat && target.SpeedBonus < MonsterFormData.MAX_STAT_BOOST)
+                            target.SpeedBonus++;
+                    }
                     newStat = target.BaseSpeed;
+                    newBoost = target.SpeedBonus;
                     break;
             }
-            if (newStat > prevStat)
+            if (newBoost > prevBoost)
             {
-                DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_STAT_BOOST").ToLocal(), target.GetDisplayName(false), stat.ToLocal(), (newStat - prevStat).ToString()));
-                return true;
+                if (newStat > prevStat)
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_STAT_BOOST").ToLocal(), target.GetDisplayName(false), stat.ToLocal(), (newStat - prevStat).ToString()));
             }
-            else
-                return false;
+            return new Loc(newStat - prevStat, newBoost - prevBoost);
+        }
+
+
+        [OnDeserialized]
+        internal void OnDeserializedMethod(StreamingContext context)
+        {
+            //TODO: remove on v1.1
+            if (Serializer.OldVersion < new Version(0, 7, 25))
+            {
+                ForceDiff = true;
+            }
         }
     }
     
@@ -11992,7 +12122,15 @@ namespace PMDC.Dungeon
                 yield return CoroutineManager.Instance.StartCoroutine(applyStatus(owner, ownerChar, AltStatusID, origin, target, context, cancel));
 
             //This will pull the player to a proper location if it dashed onto untraversible terrain and snapped back.  it looks a bit janky though....
-            context.User.CharLoc = context.Target.CharLoc + context.User.CharDir.Reverse().GetLoc();
+            LocRay8 candLoc = new LocRay8(context.StrikeStartTile, context.User.CharDir);
+            Loc endLoc = context.User.CharLoc;
+            for (int ii = 0; ii < context.HitboxAction.Distance; ii++)
+            {
+                candLoc.Traverse(1);
+                if (ZoneManager.Instance.CurrentMap.GetCharAtLoc(endLoc) == null)
+                    endLoc = candLoc.Loc;
+            }
+            context.User.CharLoc = endLoc;
         }
     }
 
@@ -15429,11 +15567,6 @@ namespace PMDC.Dungeon
             if (itemIndex > -2)
             {
                 InvItem item = (itemIndex > -1 ? ((ExplorerTeam)context.Target.MemberTeam).GetInv(itemIndex) : context.Target.EquippedItem);
-                //remove the item, and make it fly off in the attacker's direction as if it were an attack
-                if (itemIndex > -1)
-                    ((ExplorerTeam)context.Target.MemberTeam).RemoveFromInv(itemIndex);
-                else
-                    yield return CoroutineManager.Instance.StartCoroutine(context.Target.DequipItem());
 
                 BattleContext newContext = new BattleContext(BattleActionType.Throw);
                 newContext.User = context.User;
@@ -15446,7 +15579,7 @@ namespace PMDC.Dungeon
                 bool defaultDmg = false;
                 bool catchable = true;
 
-                if (entry.UsageType == ItemData.UseType.None || entry.UsageType == ItemData.UseType.Use || entry.UsageType == ItemData.UseType.Learn || entry.UsageType == ItemData.UseType.Box || entry.UsageType == ItemData.UseType.UseOther || entry.ItemStates.Contains<RecruitState>())
+                if (entry.UsageType == ItemData.UseType.None || entry.UsageType == ItemData.UseType.Treasure || entry.UsageType == ItemData.UseType.Use || entry.UsageType == ItemData.UseType.Learn || entry.UsageType == ItemData.UseType.Box || entry.UsageType == ItemData.UseType.UseOther || entry.ItemStates.Contains<RecruitState>())
                     defaultDmg = true;
                 else if (entry.ItemStates.Contains<EdibleState>())
                     catchable = false;
@@ -15486,6 +15619,12 @@ namespace PMDC.Dungeon
                 newContext.Data.AfterActions.Add(-1, new LandItemEvent());
 
                 newContext.Item = new InvItem(item);
+                if (entry.MaxStack > 1)
+                {
+                    //TODO: Price needs to be multiplied by amount instead of dividing
+                    newContext.Item.Price = context.Item.Price / newContext.Item.Amount;
+                    newContext.Item.Amount = 1;
+                }
                 newContext.Strikes = 1;
 
                 //the action needs to be exactly the linear throw action, but starting from the target's location
@@ -15510,7 +15649,7 @@ namespace PMDC.Dungeon
                 newContext.Explosion = new ExplosionData(entry.Explosion);
                 newContext.Explosion.TargetAlignments = Alignment.Friend | Alignment.Foe | Alignment.Self;
 
-                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_KNOCK_ITEM").ToLocal(), context.User.GetDisplayName(false), context.Target.GetDisplayName(false), item.GetDisplayName()));
+                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_KNOCK_ITEM").ToLocal(), context.User.GetDisplayName(false), context.Target.GetDisplayName(false), newContext.Item.GetDisplayName()));
 
 
                 //beforetryaction and beforeAction need to distinguish forced effects vs willing effects for all times it's triggered
@@ -15529,6 +15668,7 @@ namespace PMDC.Dungeon
                 yield return CoroutineManager.Instance.StartCoroutine(newContext.User.BeforeAction(newContext));
                 if (newContext.CancelState.Cancel) { yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.CancelWait(newContext.User.CharLoc)); yield break; }
 
+                yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.ExpendItem(context.Target, itemIndex, BattleActionType.Throw));
                 newContext.PrintActionMsg();
 
                 yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.ExecuteAction(newContext));
@@ -15683,9 +15823,9 @@ namespace PMDC.Dungeon
             yield break;
         }
     }
-    
+
     /// <summary>
-    /// Event that destroy's the character item
+    /// Event that destroy the character's item
     /// </summary>
     [Serializable]
     public class DestroyItemEvent : ItemMetaEvent
@@ -15702,19 +15842,19 @@ namespace PMDC.Dungeon
             if (itemIndex > -2)
             {
                 InvItem item = (itemIndex > -1 ? ((ExplorerTeam)context.Target.MemberTeam).GetInv(itemIndex) : context.Target.EquippedItem);
+                ItemData entry = DataManager.Instance.GetItem(item.ID);
+                InvItem newItem = new InvItem(item);
+                if (entry.MaxStack > 1)
+                    newItem.Amount = 1;
+
+                yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.ExpendItem(context.Target, itemIndex, BattleActionType.Throw));
+
                 //destroy the item
                 if (itemIndex > -1)
-                {
-                    ((ExplorerTeam)context.Target.MemberTeam).RemoveFromInv(itemIndex);
-                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_LOSE_ITEM").ToLocal(), context.Target.GetDisplayName(false), item.GetDisplayName()));
-                }
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_LOSE_ITEM").ToLocal(), context.Target.GetDisplayName(false), newItem.GetDisplayName()));
                 else
-                {
-                    yield return CoroutineManager.Instance.StartCoroutine(context.Target.DequipItem());
-                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_LOSE_HELD_ITEM").ToLocal(), context.Target.GetDisplayName(false), item.GetDisplayName()));
-                }
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_LOSE_HELD_ITEM").ToLocal(), context.Target.GetDisplayName(false), newItem.GetDisplayName()));
             }
-            yield break;
         }
     }
 
@@ -16184,27 +16324,33 @@ namespace PMDC.Dungeon
                     newContext.Explosion = new ExplosionData(entry.Explosion);
                     newContext.Strikes = 1;
                     newContext.Item = new InvItem(item);
+                    if (entry.MaxStack > 1)
+                    {
+                        //TODO: Price needs to be multiplied by amount instead of dividing
+                        newContext.Item.Price = newContext.Item.Price / newContext.Item.Amount;
+                        newContext.Item.Amount = 1;
+                    }
                     newContext.HitboxAction = entry.UseAction.Clone();
                     switch (entry.UsageType)
                     {
                         case ItemData.UseType.Eat:
                             {
-                                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_STEAL_EAT").ToLocal(), newContext.User.GetDisplayName(false), item.GetDisplayName()));
+                                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_STEAL_EAT").ToLocal(), newContext.User.GetDisplayName(false), newContext.Item.GetDisplayName()));
                                 break;
                             }
                         case ItemData.UseType.Drink:
                             {
-                                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_STEAL_DRINK").ToLocal(), newContext.User.GetDisplayName(false), item.GetDisplayName()));
+                                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_STEAL_DRINK").ToLocal(), newContext.User.GetDisplayName(false), newContext.Item.GetDisplayName()));
                                 break;
                             }
                         case ItemData.UseType.Learn:
                             {
-                                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_STEAL_OPERATE").ToLocal(), newContext.User.GetDisplayName(false), item.GetDisplayName()));
+                                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_STEAL_OPERATE").ToLocal(), newContext.User.GetDisplayName(false), newContext.Item.GetDisplayName()));
                                 break;
                             }
                         case ItemData.UseType.Use:
                             {
-                                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_STEAL_USE").ToLocal(), newContext.User.GetDisplayName(false), item.GetDisplayName()));
+                                newContext.SetActionMsg(Text.FormatGrammar(new StringKey("MSG_STEAL_USE").ToLocal(), newContext.User.GetDisplayName(false), newContext.Item.GetDisplayName()));
                                 break;
                             }
                     }
@@ -16225,10 +16371,7 @@ namespace PMDC.Dungeon
                     //PreExecuteItem
 
                     //remove the item, and have the attacker use the item as a move
-                    if (itemIndex > -1)
-                        ((ExplorerTeam)target.MemberTeam).RemoveFromInv(itemIndex);
-                    else
-                        yield return CoroutineManager.Instance.StartCoroutine(target.DequipItem());
+                    yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.ExpendItem(target, itemIndex, BattleActionType.Item));
 
                     newContext.PrintActionMsg();
 

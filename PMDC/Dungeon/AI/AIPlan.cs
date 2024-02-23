@@ -5,6 +5,7 @@ using RogueEssence.Data;
 using RogueEssence;
 using RogueEssence.Dungeon;
 using System.Runtime.Serialization;
+using System.Linq;
 
 namespace PMDC.Dungeon
 {
@@ -243,6 +244,33 @@ namespace PMDC.Dungeon
             return true;
         }
 
+        /// <summary>
+        /// A character is being an obstacle if they cannot move (status effect), or choose not to move (ai).
+        /// This also includes opponents.
+        /// </summary>
+        /// <param name="controlledChar"></param>
+        /// <param name="testLoc"></param>
+        /// <returns></returns>
+        protected bool BlockedByObstacleChar(Character controlledChar, Loc testLoc)
+        {
+            Character character = ZoneManager.Instance.CurrentMap.GetCharAtLoc(testLoc);
+            if (character != null)
+            {
+                if (!character.Dead && (DungeonScene.Instance.GetMatchup(controlledChar, character) & Alignment.Foe) != Alignment.None)
+                    return true;
+                if (character.CantWalk)
+                    return true;
+                switch (character.Tactic.ID) //NOTE: specialized AI code!
+                {
+                    case "wait_attack":
+                    case "turret":
+                    case "shopkeeper":
+                        return true;
+                }
+            }
+            return false;
+        }
+
         protected bool BlockedByChar(Character controlledChar, Loc testLoc, Alignment alignment)
         {
             Character character = ZoneManager.Instance.CurrentMap.GetCharAtLoc(testLoc);
@@ -259,7 +287,7 @@ namespace PMDC.Dungeon
             Tile tile = ZoneManager.Instance.CurrentMap.GetTile(testLoc);
             
             //Check for restricted mobility types
-            if (tile.Data.GetData() != null)
+            if (tile != null)
             {
                 TerrainData terrain = tile.Data.GetData();
                 if ((terrain.BlockType & RestrictedMobilityTypes) != 0)
@@ -312,15 +340,29 @@ namespace PMDC.Dungeon
         {
             if ((IQ & AIFlags.PlayerSense) == AIFlags.None)
                 return false;
-            //TODO: pass in the list of seen characters instead of computing them on the spot
-            //this is very slow and expensive to do, and can lead to performance bottlenecks
-            //and the only reason the game isn't lagging is because this check is only called for ally characters!
-            List<Character> seenChars = controlledChar.GetSeenCharacters(Alignment.Foe);
-            foreach (Character seenChar in seenChars)
+            //check only entities 1 tile away, and also check ai and targeted before seeing.  this optimizes what would've been expensive processing
+            foreach (Character target in ZoneManager.Instance.CurrentMap.GetCharsInRect(Rect.FromPointRadius(testLoc, 1)))
             {
-                if (seenChar.Tactic.ID == "wait_attack" && ZoneManager.Instance.CurrentMap.InRange(seenChar.CharLoc, testLoc, 1) && seenChar.GetStatusEffect("last_targeted_by") == null)//do not approach silcoon/cascoon; NOTE: specialized AI code!
+                if (target.Tactic.ID == "wait_attack" && target.GetStatusEffect("last_targeted_by") == null &&
+                    DungeonScene.Instance.IsTargeted(controlledChar, target, Alignment.Foe, false) &&
+                    controlledChar.CanSeeCharacter(target))//do not approach silcoon/cascoon; NOTE: specialized AI code!
                     return true;
             }
+            return false;
+        }
+
+        protected bool IsPathBlocked(Character controlledChar, Loc testLoc)
+        {
+            if (ZoneManager.Instance.CurrentMap.TileBlocked(testLoc, controlledChar.Mobility))
+                return true;
+
+            if (BlockedByTrap(controlledChar, testLoc))
+                return true;
+            if (BlockedByTerrain(controlledChar, testLoc))
+                return true;
+            if (BlockedByHazard(controlledChar, testLoc))
+                return true;
+
             return false;
         }
 
@@ -355,6 +397,9 @@ namespace PMDC.Dungeon
 
             bool playerSense = (IQ & AIFlags.PlayerSense) != AIFlags.None;
             bool teamPartner = (IQ & AIFlags.TeamPartner) != AIFlags.None;
+
+            Loc mapStart = controlledChar.CharLoc - Character.GetSightDims();
+            Loc mapSize = Character.GetSightDims() * 2 + new Loc(1);
             foreach (Character seenChar in seenCharacters)
             {
                 if (playerSense && !playerSensibleToAttack(seenChar))
@@ -368,9 +413,22 @@ namespace PMDC.Dungeon
             }
         }
 
-        private Loc[] getWrappedEnds(Loc mapStart, Loc mapSize, Loc start, Loc[] ends)
+        /// <summary>
+        /// End locs may appear multiple times in wrapped maps, and this function chooses the end locs that are closest to the start loc.
+        /// This is done by checking a rectangle equal to the whole map's size, but centered on the start.
+        /// This only works in wrapped maps.  ignore in non-wrapped maps
+        /// </summary>
+        /// <param name="mapStart"></param>
+        /// <param name="mapSize"></param>
+        /// <param name="start"></param>
+        /// <param name="ends"></param>
+        /// <returns></returns>
+        private Loc[] getWrappedEnds(Loc start, Loc[] ends)
         {
-            Rect mapRect = new Rect(mapStart, mapSize);
+            if (ZoneManager.Instance.CurrentMap.EdgeView != Map.ScrollEdge.Wrap)
+                return ends;
+
+            Rect mapRect = new Rect(start - ZoneManager.Instance.CurrentMap.Size / 2, ZoneManager.Instance.CurrentMap.Size);
 
             Loc[] wrappedEnds = new Loc[ends.Length];
             for (int ii = 0; ii < ends.Length; ii++)
@@ -400,9 +458,7 @@ namespace PMDC.Dungeon
         /// <returns></returns>
         protected List<Loc>[] GetPaths(Character controlledChar, Loc[] ends, bool freeGoal, bool respectPeers, int limit = 1)
         {
-            Loc mapStart = controlledChar.CharLoc - Character.GetSightDims();
-            Loc mapSize = Character.GetSightDims() * 2 + new Loc(1);
-            Loc[] wrappedEnds = getWrappedEnds(mapStart, mapSize, controlledChar.CharLoc, ends);
+            Loc[] wrappedEnds = getWrappedEnds(controlledChar.CharLoc, ends);
 
             //requires a valid target tile
             Grid.LocTest checkDiagBlock = (Loc loc) => {
@@ -421,14 +477,7 @@ namespace PMDC.Dungeon
                     }
                 }
 
-                if (ZoneManager.Instance.CurrentMap.TileBlocked(testLoc, controlledChar.Mobility))
-                    return true;
-
-                if (BlockedByTrap(controlledChar, testLoc))
-                    return true;
-                if (BlockedByTerrain(controlledChar, testLoc))
-                    return true;
-                if (BlockedByHazard(controlledChar, testLoc))
+                if (IsPathBlocked(controlledChar, testLoc))
                     return true;
 
                 if (respectPeers && BlockedByChar(controlledChar, testLoc, Alignment.Friend | Alignment.Foe))
@@ -438,6 +487,8 @@ namespace PMDC.Dungeon
             };
 
 
+            Loc mapStart = controlledChar.CharLoc - Character.GetSightDims();
+            Loc mapSize = Character.GetSightDims() * 2 + new Loc(1);
             return Grid.FindNPaths(mapStart, mapSize, controlledChar.CharLoc, wrappedEnds, checkBlock, checkDiagBlock, limit, true);
         }
 
@@ -461,9 +512,7 @@ namespace PMDC.Dungeon
 
         protected List<Loc>[] GetPathsPermissive(Character controlledChar, List<Loc> ends)
         {
-            Loc mapStart = controlledChar.CharLoc - Character.GetSightDims();
-            Loc mapSize = Character.GetSightDims() * 2 + new Loc(1);
-            Loc[] wrappedEnds = getWrappedEnds(mapStart, mapSize, controlledChar.CharLoc, ends.ToArray());
+            Loc[] wrappedEnds = getWrappedEnds(controlledChar.CharLoc, ends.ToArray());
 
             //requires a valid target tile
             Grid.LocTest checkDiagBlock = (Loc testLoc) => {
@@ -479,22 +528,17 @@ namespace PMDC.Dungeon
                         return false;
                 }
 
-                if (ZoneManager.Instance.CurrentMap.TileBlocked(testLoc, controlledChar.Mobility))
+                if (IsPathBlocked(controlledChar, testLoc))
                     return true;
 
-                if (BlockedByTrap(controlledChar, testLoc))
-                    return true;
-                if (BlockedByTerrain(controlledChar, testLoc))
-                    return true;
-                if (BlockedByHazard(controlledChar, testLoc))
-                    return true;
-
-                if (BlockedByChar(controlledChar, testLoc, Alignment.Foe))
+                if (BlockedByObstacleChar(controlledChar, testLoc))
                     return true;
 
                 return false;
             };
 
+            Loc mapStart = controlledChar.CharLoc - Character.GetSightDims();
+            Loc mapSize = Character.GetSightDims() * 2 + new Loc(1);
             return Grid.FindAllPaths(mapStart, mapSize, controlledChar.CharLoc, wrappedEnds, checkBlock, checkDiagBlock);
         }
 
@@ -507,9 +551,7 @@ namespace PMDC.Dungeon
         /// <returns></returns>
         protected List<Loc>[] GetPathsImpassable(Character controlledChar, List<Loc> ends)
         {
-            Loc mapStart = controlledChar.CharLoc - Character.GetSightDims();
-            Loc mapSize = Character.GetSightDims() * 2 + new Loc(1);
-            Loc[] wrappedEnds = getWrappedEnds(mapStart, mapSize, controlledChar.CharLoc, ends.ToArray());
+            Loc[] wrappedEnds = getWrappedEnds(controlledChar.CharLoc, ends.ToArray());
 
             //requires a valid target tile
             Grid.LocTest checkDiagBlock = (Loc testLoc) => {
@@ -531,7 +573,9 @@ namespace PMDC.Dungeon
                 return false;
             };
 
-            return Grid.FindNPaths(mapStart, Character.GetSightDims() * 2 + new Loc(1), controlledChar.CharLoc, wrappedEnds, checkBlock, checkDiagBlock, 1, false);
+            Loc mapStart = controlledChar.CharLoc - Character.GetSightDims();
+            Loc mapSize = Character.GetSightDims() * 2 + new Loc(1);
+            return Grid.FindNPaths(mapStart, mapSize, controlledChar.CharLoc, wrappedEnds, checkBlock, checkDiagBlock, 1, false);
         }
 
         protected GameAction SelectChoiceFromPath(Character controlledChar, List<Loc> path)
@@ -2468,6 +2512,11 @@ namespace PMDC.Dungeon
                                 return -100;
                         }
                     }
+                    else if (effect is ItemRestoreEvent)
+                    {
+                        //never use this normally
+                        return 0;
+                    }
                 }
 
                 //status checker
@@ -2682,6 +2731,25 @@ namespace PMDC.Dungeon
                                         power /= -2;
                                     break;
                                 }
+                            }
+                            else if (effect is SemiInvulEvent)
+                            {
+                                //TODO: account for hitting through semi-invulnerable effects using specific exception moves
+                                //SemiInvulEvent invulEvent = (SemiInvulEvent)effect;
+                                //if (!invulEvent.ExceptionMoves.Contains(data.ID))
+                                if (data.HitRate > -1)
+                                    power = 0;
+                            }
+                            else if (effect is ProtectEvent)
+                            {
+                                //TODO: account for moves and factors that hit through protect
+                                power = 0;
+                            }
+                            else if (effect is WonderGuardEvent)
+                            {
+                                int testMatchup = PreTypeEvent.GetDualEffectiveness(controlledChar, target, data);
+                                if (testMatchup <= PreTypeEvent.NRM_2)
+                                    power = 0;
                             }
                         }
                     }
