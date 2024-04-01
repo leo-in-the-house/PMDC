@@ -951,12 +951,6 @@ namespace PMDC.Dungeon
         public string ReqSpecies;
 
         /// <summary>
-        /// The move that changes the character into its Defense form
-        /// </summary>
-        [DataType(0, DataManager.DataType.Skill, false)]
-        public string DefenseSkill;
-        
-        /// <summary>
         /// The defense form ID of the species
         /// </summary>
         public int DefenseForme;
@@ -966,18 +960,16 @@ namespace PMDC.Dungeon
         /// </summary>
         public int AttackForme;
 
-        public StanceChangeEvent() { ReqSpecies = ""; DefenseSkill = ""; }
-        public StanceChangeEvent(string reqSpecies, string defenseSkill, int defenseForme, int attackForme)
+        public StanceChangeEvent() { ReqSpecies = ""; }
+        public StanceChangeEvent(string reqSpecies, int defenseForme, int attackForme)
         {
             ReqSpecies = reqSpecies;
-            DefenseSkill = defenseSkill;
             DefenseForme = defenseForme;
             AttackForme = attackForme;
         }
         protected StanceChangeEvent(StanceChangeEvent other) : this()
         {
             ReqSpecies = other.ReqSpecies;
-            DefenseSkill = other.DefenseSkill;
             DefenseForme = other.DefenseForme;
             AttackForme = other.AttackForme;
         }
@@ -997,7 +989,7 @@ namespace PMDC.Dungeon
                 {
                     forme = AttackForme;
                 }
-                else if (context.Data.ID == DefenseSkill)
+                else if (context.Data.Category == BattleData.SkillCategory.Status)
                 {
                     forme = DefenseForme;
                 }
@@ -3805,12 +3797,50 @@ namespace PMDC.Dungeon
     }
 
     /// <summary>
-    /// Event that makes the move never miss and always land a critical hit if the move is on its last PP
+    /// Event that makes the move never miss and always land a critical hit if all moves have the same PP
     /// </summary>
     [Serializable]
     public class BetterOddsEvent : BattleEvent
     {
         public override GameEvent Clone() { return new BetterOddsEvent(); }
+
+        public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
+        {
+            if (context.ActionType == BattleActionType.Skill && context.UsageSlot > BattleContext.DEFAULT_ATTACK_SLOT && context.UsageSlot < CharData.MAX_SKILL_SLOTS)
+            {
+                Skill baseMove = context.User.Skills[context.UsageSlot].Element;
+                bool allEqual = true;
+                for (int ii = 0; ii < context.User.Skills.Count; ii++)
+                {
+                    if (ii == context.UsageSlot)
+                        continue;
+                    Skill move = context.User.Skills[ii].Element;
+                    if (String.IsNullOrEmpty(move.SkillNum))
+                        continue;
+                    if (move.Charges != baseMove.Charges + 1)
+                    {
+                        allEqual = false;
+                        break;
+                    }
+
+                }
+                if (allEqual)
+                {
+                    context.Data.HitRate = -1;
+                    context.AddContextStateInt<CritLevel>(4);
+                }
+            }
+            yield break;
+        }
+    }
+
+    /// <summary>
+    /// Event that makes the move never miss and always land a critical hit if the move is on its last PP
+    /// </summary>
+    [Serializable]
+    public class FinalOddsEvent : BattleEvent
+    {
+        public override GameEvent Clone() { return new FinalOddsEvent(); }
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
@@ -9044,41 +9074,53 @@ namespace PMDC.Dungeon
         /// </summary> 
         public int Level;
 
+        /// <summary>
+        /// Whether to affect the target or user
+        /// </summary>
+        public bool AffectTarget;
+
         public LevelChangeEvent() { }
-        public LevelChangeEvent(int level)
+        public LevelChangeEvent(int level, bool affectTarget)
         {
             Level = level;
+            AffectTarget = affectTarget;
         }
         protected LevelChangeEvent(LevelChangeEvent other)
         {
             Level = other.Level;
+            AffectTarget = other.AffectTarget;
         }
         public override GameEvent Clone() { return new LevelChangeEvent(this); }
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
-            context.Target.EXP = 0;
-            string growth = DataManager.Instance.GetMonster(context.Target.BaseForm.Species).EXPTable;
+            Character target = (AffectTarget ? context.Target : context.User);
+
+            if (target.Dead)
+                yield break;
+
+            target.EXP = 0;
+            string growth = DataManager.Instance.GetMonster(target.BaseForm.Species).EXPTable;
             GrowthData growthData = DataManager.Instance.GetGrowth(growth);
             if (Level < 0)
             {
                 int levelsChanged = 0;
-                while (levelsChanged > Level && context.Target.Level + levelsChanged > 1)
+                while (levelsChanged > Level && target.Level + levelsChanged > 1)
                 {
-                    context.Target.EXP -= growthData.GetExpToNext(context.Target.Level + levelsChanged - 1);
+                    target.EXP -= growthData.GetExpToNext(target.Level + levelsChanged - 1);
                     levelsChanged--;
                 }
             }
             else if (Level > 0)
             {
                 int levelsChanged = 0;
-                while (levelsChanged < Level && context.Target.Level + levelsChanged < DataManager.Instance.Start.MaxLevel)
+                while (levelsChanged < Level && target.Level + levelsChanged < DataManager.Instance.Start.MaxLevel)
                 {
-                    context.Target.EXP += growthData.GetExpToNext(context.Target.Level + levelsChanged);
+                    target.EXP += growthData.GetExpToNext(target.Level + levelsChanged);
                     levelsChanged++;
                 }
             }
-            DungeonScene.Instance.LevelGains.Add(ZoneManager.Instance.CurrentMap.GetCharIndex(context.Target));
+            DungeonScene.Instance.LevelGains.Add(ZoneManager.Instance.CurrentMap.GetCharIndex(target));
             yield break;
         }
     }
@@ -17722,14 +17764,30 @@ namespace PMDC.Dungeon
         [DataType(0, DataManager.DataType.Tile, false)]
         public string TrapID;
 
-        public CounterTrapEvent() { }
-        public CounterTrapEvent(string trapID)
+        /// <summary>
+        /// The particle VFX 
+        /// </summary>
+        public FiniteEmitter Emitter;
+
+        /// <summary>
+        /// The sound effect of the VFX
+        /// </summary>
+        [Sound(0)]
+        public string Sound;
+
+
+        public CounterTrapEvent() { Emitter = new EmptyFiniteEmitter(); }
+        public CounterTrapEvent(string trapID, FiniteEmitter emitter, string sound)
         {
             TrapID = trapID;
+            Emitter = emitter;
+            Sound = sound;
         }
         protected CounterTrapEvent(CounterTrapEvent other)
         {
             TrapID = other.TrapID;
+            Emitter = (FiniteEmitter)other.Emitter.Clone();
+            Sound = other.Sound;
         }
         public override GameEvent Clone() { return new CounterTrapEvent(this); }
 
@@ -17738,11 +17796,28 @@ namespace PMDC.Dungeon
             if (!Collision.InBounds(ZoneManager.Instance.CurrentMap.Width, ZoneManager.Instance.CurrentMap.Height, context.Target.CharLoc))
                 yield break;
 
-            Tile tile = ZoneManager.Instance.CurrentMap.Tiles[context.Target.CharLoc.X][context.Target.CharLoc.Y];
-            if (tile.Data.GetData().BlockType == TerrainData.Mobility.Passable && String.IsNullOrEmpty(tile.Effect.ID))
+            bool dropped = false;
+            Loc baseLoc = context.Target.CharLoc;
+            foreach (Dir4 dir in DirExt.VALID_DIR4)
             {
-                tile.Effect = new EffectTile(TrapID, true, context.Target.CharLoc);
-                tile.Effect.Owner = ZoneManager.Instance.CurrentMap.GetTileOwner(context.Target);
+                Loc endLoc = baseLoc + dir.GetLoc();
+                Tile tile = ZoneManager.Instance.CurrentMap.Tiles[endLoc.X][endLoc.Y];
+                if (tile.Data.GetData().BlockType == TerrainData.Mobility.Passable && String.IsNullOrEmpty(tile.Effect.ID))
+                {
+                    tile.Effect = new EffectTile(TrapID, true, endLoc);
+                    tile.Effect.Owner = ZoneManager.Instance.CurrentMap.GetTileOwner(context.Target);
+
+                    GameManager.Instance.BattleSE(Sound);
+                    FiniteEmitter endEmitter = (FiniteEmitter)Emitter.Clone();
+                    endEmitter.SetupEmit(endLoc * GraphicsManager.TileSize + new Loc(GraphicsManager.TileSize / 2), endLoc * GraphicsManager.TileSize + new Loc(GraphicsManager.TileSize / 2), context.Target.CharDir);
+                    DungeonScene.Instance.CreateAnim(endEmitter, DrawLayer.NoDraw);
+                    dropped = true;
+                }
+            }
+            if (dropped)
+            {
+                TileData tileData = DataManager.Instance.GetTile(TrapID);
+                DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_SPIKE_DROPPER").ToLocal(), context.Target.GetDisplayName(false), owner.GetDisplayName(), tileData.Name.ToLocal()));
             }
         }
     }
