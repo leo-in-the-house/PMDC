@@ -859,10 +859,14 @@ namespace PMDC.Dungeon
 
                 for (int ii = 0; ii < targets.Count; ii++)
                 {
-                    int charDmg = dmg;
+                    HitAndRunState cancel;
+                    if (targets[ii].CharStates.TryGet(out cancel))
+                    {
+                        DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_HIT_AND_RUN").ToLocal(), targets[ii].GetDisplayName(false), ((ItemEntrySummary)DataManager.Instance.DataIndices[DataManager.DataType.Item].Get(cancel.OriginItem)).GetIconName()));
+                        continue;
+                    }
 
-                    if (targets[ii].CharStates.Contains<HitAndRunState>())
-                        charDmg /= 4;
+                    int charDmg = dmg;
 
                     yield return CoroutineManager.Instance.StartCoroutine(targets[ii].InflictDamage(charDmg));
                 }
@@ -6070,14 +6074,17 @@ namespace PMDC.Dungeon
             {
                 DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_REFLECT").ToLocal()));
 
-                int recoil = damage * Numerator / Denominator;
+                HitAndRunState cancel;
+                if (context.User.CharStates.TryGet(out cancel))
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_HIT_AND_RUN").ToLocal(), context.User.GetDisplayName(false), ((ItemEntrySummary)DataManager.Instance.DataIndices[DataManager.DataType.Item].Get(cancel.OriginItem)).GetIconName()));
+                else
+                {
+                    int recoil = damage * Numerator / Denominator;
 
-                if (context.User.CharStates.Contains<HitAndRunState>())
-                    recoil /= 4;
-
-                if (recoil < 1)
-                    recoil = 1;
-                yield return CoroutineManager.Instance.StartCoroutine(context.User.InflictDamage(recoil));
+                    if (recoil < 1)
+                        recoil = 1;
+                    yield return CoroutineManager.Instance.StartCoroutine(context.User.InflictDamage(recoil));
+                }
             }
         }
     }
@@ -6144,17 +6151,20 @@ namespace PMDC.Dungeon
             {
                 DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_REFLECT").ToLocal()));
 
-                foreach (BattleAnimEvent anim in Anims)
-                    yield return CoroutineManager.Instance.StartCoroutine(anim.Apply(owner, ownerChar, context));
+                HitAndRunState cancel;
+                if (context.User.CharStates.TryGet(out cancel))
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_HIT_AND_RUN").ToLocal(), context.User.GetDisplayName(false), ((ItemEntrySummary)DataManager.Instance.DataIndices[DataManager.DataType.Item].Get(cancel.OriginItem)).GetIconName()));
+                else
+                {
+                    foreach (BattleAnimEvent anim in Anims)
+                        yield return CoroutineManager.Instance.StartCoroutine(anim.Apply(owner, ownerChar, context));
 
-                int recoil = damage * Numerator / Denominator;
+                    int recoil = damage * Numerator / Denominator;
 
-                if (context.User.CharStates.Contains<HitAndRunState>())
-                    recoil /= 4;
-
-                if (recoil < 1)
-                    recoil = 1;
-                yield return CoroutineManager.Instance.StartCoroutine(context.User.InflictDamage(recoil));
+                    if (recoil < 1)
+                        recoil = 1;
+                    yield return CoroutineManager.Instance.StartCoroutine(context.User.InflictDamage(recoil));
+                }
             }
         }
     }
@@ -6206,17 +6216,20 @@ namespace PMDC.Dungeon
             {
                 DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_REFLECT_BY").ToLocal(), ownerChar.GetDisplayName(false), owner.GetDisplayName()));
 
-                foreach (BattleAnimEvent anim in Anims)
-                    yield return CoroutineManager.Instance.StartCoroutine(anim.Apply(owner, ownerChar, context));
+                HitAndRunState cancel;
+                if (context.User.CharStates.TryGet(out cancel))
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_HIT_AND_RUN").ToLocal(), context.User.GetDisplayName(false), ((ItemEntrySummary)DataManager.Instance.DataIndices[DataManager.DataType.Item].Get(cancel.OriginItem)).GetIconName()));
+                else
+                {
+                    foreach (BattleAnimEvent anim in Anims)
+                        yield return CoroutineManager.Instance.StartCoroutine(anim.Apply(owner, ownerChar, context));
 
-                int recoil = damage * Numerator / Denominator;
+                    int recoil = damage * Numerator / Denominator;
 
-                if (context.User.CharStates.Contains<HitAndRunState>())
-                    recoil /= 4;
-
-                if (recoil < 1)
-                    recoil = 1;
-                yield return CoroutineManager.Instance.StartCoroutine(context.User.InflictDamage(recoil));
+                    if (recoil < 1)
+                        recoil = 1;
+                    yield return CoroutineManager.Instance.StartCoroutine(context.User.InflictDamage(recoil));
+                }
             }
         }
     }
@@ -8199,14 +8212,18 @@ namespace PMDC.Dungeon
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
             int damage = context.GetContextStateInt<DamageDealt>(0);
-            if (damage > 0 && ((StatusEffect)owner).TargetChar != null)
+            Character target = ((StatusEffect)owner).TargetChar;
+            if (damage > 0 && target != null)
             {
-                DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_DESTINY_BOND").ToLocal(), context.Target.GetDisplayName(false), ((StatusEffect)owner).TargetChar.GetDisplayName(false)));
+                DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_DESTINY_BOND").ToLocal(), context.Target.GetDisplayName(false), target.GetDisplayName(false)));
 
-                if (((StatusEffect)owner).TargetChar.CharStates.Contains<HitAndRunState>())
-                    damage /= 4;
-
-                yield return CoroutineManager.Instance.StartCoroutine(((StatusEffect)owner).TargetChar.InflictDamage(damage));
+                HitAndRunState cancel;
+                if (target.CharStates.TryGet(out cancel))
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_HIT_AND_RUN").ToLocal(), target.GetDisplayName(false), ((ItemEntrySummary)DataManager.Instance.DataIndices[DataManager.DataType.Item].Get(cancel.OriginItem)).GetIconName()));
+                else
+                {
+                    yield return CoroutineManager.Instance.StartCoroutine(target.InflictDamage(damage));
+                }
             }
         }
     }
@@ -10763,9 +10780,15 @@ namespace PMDC.Dungeon
         }
     }
 
+    /// <summary>
+    /// Event that deals fixed damage based on the user's current HP.
+    /// </summary>
     [Serializable]
     public class UserHPDamageEvent : FixedDamageEvent
     {
+        /// <summary>
+        /// Instead, deal damage based on the HP the user is missing.
+        /// </summary>
         public bool Reverse;
         public UserHPDamageEvent() { }
         public UserHPDamageEvent(bool reverse)
@@ -18855,6 +18878,82 @@ namespace PMDC.Dungeon
             }
         }
     }
+
+
+
+    /// <summary>
+    /// Event that selects the item currently held by the user to send to the storage 
+    /// </summary>
+    [Serializable]
+    public class DepositBoxEvent : BattleEvent
+    {
+        public DepositBoxEvent() { }
+        public override GameEvent Clone() { return new DepositBoxEvent(); }
+        public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
+        {
+            if (context.User.MemberTeam == DungeonScene.Instance.ActiveTeam)
+            {
+                if (!String.IsNullOrEmpty(context.User.EquippedItem.ID) && context.UsageSlot != BattleContext.EQUIP_ITEM_SLOT)
+                {
+                    InvSlot chosenSlot = new InvSlot(true, context.User.MemberTeam.GetCharIndex(context.User).Char);
+                    
+                    //TODO: make this into an inventory UI for the player to choose what to send to deposit.  make an exception for the usage slot itself
+
+                    if (!context.CancelState.Cancel)
+                    {
+                        DepositStorageContext deposit = new DepositStorageContext(chosenSlot);
+                        context.ContextStates.Set(deposit);
+                    }
+                }
+                else
+                {
+                    yield return CoroutineManager.Instance.StartCoroutine(MenuManager.Instance.SetDialogue(Text.FormatGrammar(new StringKey("DLG_NO_HELD_ITEM").ToLocal(), context.User.GetDisplayName(true))));
+                    context.CancelState.Cancel = true;
+                }
+            }
+            else
+                context.CancelState.Cancel = true;
+        }
+
+    }
+
+    /// <summary>
+    /// Event that stores an item using the value in DepositStorageContext
+    /// </summary>
+    [Serializable]
+    public class StoreItemEvent : BattleEvent
+    {
+        public StoreItemEvent() { }
+        public override GameEvent Clone() { return new StoreItemEvent(); }
+        public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
+        {
+            DepositStorageContext deposit = context.ContextStates.GetWithDefault<DepositStorageContext>();
+            if (deposit != null)
+            {
+                InvSlot slot = deposit.DepositSlot;
+
+                if (context.User.MemberTeam == DungeonScene.Instance.ActiveTeam)
+                {
+                    ExplorerTeam team = (ExplorerTeam)context.User.MemberTeam;
+                    InvItem item;
+                    if (slot.IsEquipped)
+                    {
+                        item = team.Players[slot.Slot].EquippedItem;
+                        yield return CoroutineManager.Instance.StartCoroutine(team.Players[slot.Slot].DequipItem());
+                    }
+                    else
+                    {
+                        item = team.GetInv(slot.Slot);
+                        team.RemoveFromInv(slot.Slot);
+                    }
+
+                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_STORAGE_STORE").ToLocal(), context.User.GetDisplayName(false), item.GetDisplayName()));
+                    team.StoreItems(new List<InvItem> { item });
+                }
+            }
+        }
+    }
+
 
     /// <summary>
     /// Event that prompts the user which assembly member to add to the team the sets up WithdrawStorageContext 
