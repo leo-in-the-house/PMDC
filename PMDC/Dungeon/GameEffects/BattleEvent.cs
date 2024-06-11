@@ -5641,7 +5641,8 @@ namespace PMDC.Dungeon
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
-            context.RangeMod += Range;
+            if (context.ActionType == BattleActionType.Skill && context.Data.ID != DataManager.Instance.DefaultSkill)
+                context.RangeMod += Range;
             yield break;
         }
     }
@@ -9297,7 +9298,7 @@ namespace PMDC.Dungeon
                 {
                     DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_KNOCK_MONEY").ToLocal(), context.Target.GetDisplayName(false), Text.FormatKey("MONEY_AMOUNT", moneyLost.ToString())));
                     team.LoseMoney(context.Target, moneyLost);
-                    Loc endLoc = context.Target.CharLoc + context.User.CharDir.GetLoc() * 2;
+                    Loc endLoc = DungeonScene.Instance.MoveShotUntilBlocked(context.User, context.Target.CharLoc, context.User.CharDir, 2, Alignment.None, false, false);
                     yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.DropMoney(moneyLost, endLoc, context.Target.CharLoc));
                 }
             }
@@ -15602,7 +15603,7 @@ namespace PMDC.Dungeon
                 else
                     yield return CoroutineManager.Instance.StartCoroutine(context.Target.DequipItem());
 
-                Loc endLoc = context.Target.CharLoc + context.User.CharDir.GetLoc() * 2;
+                Loc endLoc = DungeonScene.Instance.MoveShotUntilBlocked(context.User, context.Target.CharLoc, context.User.CharDir, 2, Alignment.None, false, false);
                 yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.DropItem(item, endLoc, context.Target.CharLoc));
             }
         }
@@ -16512,7 +16513,7 @@ namespace PMDC.Dungeon
                 DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_STICKY_HOLD").ToLocal(), context.Target.GetDisplayName(false)));
 
                 //bestowed item slides off
-                Loc endLoc = context.Target.CharLoc + context.User.CharDir.GetLoc() * 2;
+                Loc endLoc = DungeonScene.Instance.MoveShotUntilBlocked(context.User, context.Target.CharLoc, context.User.CharDir, 2, Alignment.None, false, false);
                 yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.DropItem(context.Item, endLoc, context.Target.CharLoc));
             }
             else if (!String.IsNullOrEmpty(context.Item.ID))
@@ -16524,7 +16525,7 @@ namespace PMDC.Dungeon
                     //held item slides off
                     InvItem heldItem = context.Target.EquippedItem;
                     yield return CoroutineManager.Instance.StartCoroutine(context.Target.DequipItem());
-                    Loc endLoc = context.Target.CharLoc + context.User.CharDir.GetLoc() * 2;
+                    Loc endLoc = DungeonScene.Instance.MoveShotUntilBlocked(context.User, context.Target.CharLoc, context.User.CharDir, 2, Alignment.None, false, false);
                     yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.DropItem(heldItem, endLoc, context.Target.CharLoc));
 
                     //give the target the item
@@ -19129,7 +19130,7 @@ namespace PMDC.Dungeon
             MonsterID formData = context.Target.BaseForm;
             BaseMonsterForm form = DataManager.Instance.GetMonster(formData.Species).Forms[formData.Form];
             if (Elements.Contains(form.Element1) || Elements.Contains(form.Element2))
-                return 35;
+                return 40;
             else
                 return -50;
         }
@@ -19148,7 +19149,7 @@ namespace PMDC.Dungeon
         {
             MonsterID formData = context.Target.BaseForm;
             if (formData.Skin != DataManager.Instance.DefaultSkin)
-                return 35;
+                return 40;
             return -50;
         }
     }
@@ -19183,7 +19184,7 @@ namespace PMDC.Dungeon
 
         protected override int GetRecruitRate(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
-            return (context.User.Level - context.Target.Level);//between + and - 100, at max
+            return ((context.User.Level - context.Target.Level - 1) / 10 + 1) * 10;//between + and - 100, at max
         }
     }
 
