@@ -30,6 +30,7 @@ namespace PMDC
         //[System.Runtime.InteropServices.DllImport("user32.dll")]
         //static extern bool SetProcessDPIAware();
 
+        public static AppBuilder BuildAvaloniaApp() => RogueEssence.Dev.Program.BuildAvaloniaApp();
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
@@ -42,37 +43,32 @@ namespace PMDC
             AppContext.SetSwitch("Switch.System.Runtime.Serialization.SerializationGuard.AllowFileWrites", true);
             Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
             Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
+            Serializer.InitSettings(new SerializerContractResolver(), new UpgradeBinder());
 
             string[] args = Environment.GetCommandLineArgs();
-            PathMod.InitPathMod(args[0], "origin");
-            DiagManager.InitInstance();
-            Serializer.InitSettings(new SerializerContractResolver(), new UpgradeBinder());
-            DiagManager.Instance.CurSettings = DiagManager.Instance.LoadSettings();
+            PathMod.InitPathMod(args[0]);
+
+            bool logInput = true;
+            bool guideBook = false;
+            bool guideCsv = false;
+            bool printWiki = false;
+            GraphicsManager.AssetType convertAssets = GraphicsManager.AssetType.None;
+            DataManager.DataType convertIndices = DataManager.DataType.None;
+            DataManager.DataType reserializeIndices = DataManager.DataType.None;
+            bool resaveDiff = false;
+            DataManager.DataType resaveIndices = DataManager.DataType.None;
+            string langArgs = "";
+            bool dev = false;
+            bool devLua = false;
+            string quest = "";
+            List<string> mod = new List<string>();
+            bool buildQuest = false;
+            bool loadModXml = true;
+            string playInputs = null;
+            bool preConvert = false;
 
             try
             {
-                DiagManager.Instance.LogInfo("=========================================");
-                DiagManager.Instance.LogInfo(String.Format("SESSION STARTED: {0}", String.Format("{0:yyyy/MM/dd HH:mm:ss}", DateTime.Now)));
-                DiagManager.Instance.LogInfo("Version: " + Versioning.GetVersion().ToString());
-                DiagManager.Instance.LogInfo(Versioning.GetDotNetInfo());
-                DiagManager.Instance.LogInfo("=========================================");
-
-
-                bool logInput = true;
-                bool guideBook = false;
-                bool guideCsv = false;
-                GraphicsManager.AssetType convertAssets = GraphicsManager.AssetType.None;
-                DataManager.DataType convertIndices = DataManager.DataType.None;
-                DataManager.DataType reserializeIndices = DataManager.DataType.None;
-                string langArgs = "";
-                bool dev = false;
-                bool devLua = false;
-                string quest = "";
-                List<string> mod = new List<string>();
-                bool buildQuest = false;
-                bool loadModXml = true;
-                string playInputs = null;
-                bool preConvert = false;
                 for (int ii = 1; ii < args.Length; ii++)
                 {
                     if (args[ii].ToLower() == "-dev")
@@ -92,12 +88,16 @@ namespace PMDC
                         Console.WriteLine("-lang [en/es/de/zh/ko]: Specify language.");
                         Console.WriteLine("-guide: Print a strategy guide to GUIDE/ as html");
                         Console.WriteLine("-csv: Print a strategy guide to GUIDE/ as csv");
+                        Console.WriteLine("-wiki: Print wiki-ready pages.");
                         Console.WriteLine("-asset [path]: Specify a custom path for assets.");
                         Console.WriteLine("-raw [path]: Specify a custom path for raw assets.");
+                        Console.WriteLine("-appdata [path]: Specify a custom path for app data such as saves, mods, logs, configs.  Specify no path and the AppData environment variable will be used.");
                         Console.WriteLine("-quest [folder]: Specify the folder in MODS/ to load as the quest.");
                         Console.WriteLine("-mod [mod] [...]: Specify the list of folders in MODS/ to load as additional mods.");
                         Console.WriteLine("-index [monster/skill/item/intrinsic/status/mapstatus/terrain/tile/zone/emote/autotile/element/growthgroup/skillgroup/ai/rank/skin/all]: Reindexes the selected list of data assets.");
                         Console.WriteLine("-reserialize [monster/skill/item/intrinsic/status/mapstatus/terrain/tile/zone/emote/autotile/element/growthgroup/skillgroup/ai/rank/skin/all]: Reserializes the selected list of data assets.");
+                        Console.WriteLine("-modfile [monster/skill/item/intrinsic/status/mapstatus/terrain/tile/zone/emote/autotile/element/growthgroup/skillgroup/ai/rank/skin/all]: Resaves the selected list of data assets as files. Must specify quest.");
+                        Console.WriteLine("-modpatch [monster/skill/item/intrinsic/status/mapstatus/terrain/tile/zone/emote/autotile/element/growthgroup/skillgroup/ai/rank/skin/all]: Resaves the selected list of data assets as patch files. Must specify quest.");
                         Console.WriteLine("-convert [font/chara/portrait/tile/item/particle/beam/icon/object/bg/autotile/all]: Converts graphics from the raw asset folder and saves it to the asset folder.");
                         return;
                     }
@@ -117,6 +117,8 @@ namespace PMDC
                         guideBook = true;
                     else if (args[ii].ToLower() == "-csv")
                         guideCsv = true;
+                    else if (args[ii].ToLower() == "-wiki")
+                        printWiki = true;
                     else if (args[ii].ToLower() == "-asset")
                     {
                         PathMod.ASSET_PATH = Path.GetFullPath(args[ii + 1]);
@@ -126,6 +128,16 @@ namespace PMDC
                     {
                         PathMod.DEV_PATH = Path.GetFullPath(args[ii + 1]);
                         ii++;
+                    }
+                    else if (args[ii].ToLower() == "-appdata")
+                    {
+                        string appName = Path.GetFileNameWithoutExtension(args[0]);
+                        PathMod.APP_PATH = Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), appName) + "/";
+                        if (args.Length > ii + 1 && !args[ii + 1].StartsWith("-"))
+                        {
+                            PathMod.APP_PATH = Path.GetFullPath(args[ii + 1]);
+                            ii++;
+                        }
                     }
                     else if (args[ii].ToLower() == "-quest")
                     {
@@ -169,6 +181,53 @@ namespace PMDC
                             }
                             if (conv != GraphicsManager.AssetType.None)
                                 convertAssets |= conv;
+                            else
+                                break;
+                            jj++;
+                        }
+                        loadModXml = false;
+                        ii += jj - 1;
+                    }
+                    else if (args[ii] == "-modfile")
+                    {
+                        int jj = 1;
+                        while (args.Length > ii + jj)
+                        {
+                            DataManager.DataType conv = DataManager.DataType.None;
+                            foreach (DataManager.DataType type in Enum.GetValues(typeof(DataManager.DataType)))
+                            {
+                                if (args[ii + jj].ToLower() == type.ToString().ToLower())
+                                {
+                                    conv = type;
+                                    break;
+                                }
+                            }
+                            if (conv != DataManager.DataType.None)
+                                resaveIndices |= conv;
+                            else
+                                break;
+                            jj++;
+                        }
+                        loadModXml = false;
+                        ii += jj - 1;
+                    }
+                    else if (args[ii] == "-modpatch")
+                    {
+                        resaveDiff = true;
+                        int jj = 1;
+                        while (args.Length > ii + jj)
+                        {
+                            DataManager.DataType conv = DataManager.DataType.None;
+                            foreach (DataManager.DataType type in Enum.GetValues(typeof(DataManager.DataType)))
+                            {
+                                if (args[ii + jj].ToLower() == type.ToString().ToLower())
+                                {
+                                    conv = type;
+                                    break;
+                                }
+                            }
+                            if (conv != DataManager.DataType.None)
+                                resaveIndices |= conv;
                             else
                                 break;
                             jj++;
@@ -229,11 +288,35 @@ namespace PMDC
                     }
                 }
 
-                DiagManager.Instance.SetupInputs();
-                GraphicsManager.InitParams();
+                DiagManager.InitInstance();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+#if DEBUG
+                System.Diagnostics.Debug.WriteLine(ex.Message);
+#endif
+                return;
+            }
+
+            try
+            {
+                DiagManager.Instance.CurSettings = DiagManager.Instance.LoadSettings();
 
                 DiagManager.Instance.DevMode = dev;
                 DiagManager.Instance.DebugLua = devLua;
+
+                DiagManager.Instance.LogInfo("=========================================");
+                DiagManager.Instance.LogInfo(String.Format("SESSION STARTED: {0}", String.Format("{0:yyyy/MM/dd HH:mm:ss}", DateTime.Now)));
+                DiagManager.Instance.LogInfo("Version: " + Versioning.GetVersion().ToString());
+                DiagManager.Instance.LogInfo(Versioning.GetDotNetInfo());
+                DiagManager.Instance.LogInfo("=========================================");
+
+
+
+                PathMod.InitNamespaces();
+                GraphicsManager.InitParams();
+                DiagManager.Instance.SetupInputs();
 
                 ModHeader newQuest = ModHeader.Invalid;
                 ModHeader[] newMods = new ModHeader[0] { };
@@ -341,6 +424,13 @@ namespace PMDC
                         DiagManager.Instance.LogInfo("No quest specified to build.");
                         return;
                     }
+
+                    //we need the datamanager for this, but only while data is hardcoded
+                    //TODO: remove when data is no longer hardcoded
+                    LuaEngine.InitInstance();
+                    LuaEngine.Instance.LoadScripts();
+                    DataManager.InitInstance();
+
                     RogueEssence.Dev.DevHelper.MergeQuest(quest);
 
                     return;
@@ -373,6 +463,39 @@ namespace PMDC
                     return;
                 }
 
+                if (resaveIndices != DataManager.DataType.None)
+                {
+                    if (!PathMod.Quest.IsValid())
+                    {
+                        DiagManager.Instance.LogInfo("No quest specified to resave.");
+                        return;
+                    }
+
+                    if (resaveDiff)
+                        DiagManager.Instance.LogInfo("Re-saving modded files as jsonpatch");
+                    else
+                        DiagManager.Instance.LogInfo("Re-saving modded files as json");
+
+                    //we need the datamanager for this, but only while data is hardcoded
+                    //TODO: remove when data is no longer hardcoded
+                    LuaEngine.InitInstance();
+                    LuaEngine.Instance.LoadScripts();
+                    DataManager.InitInstance();
+                    DiagManager.Instance.LogInfo("Resaving files");
+                    DataManager.InitDataDirs(PathMod.ModPath(""));
+                    if (resaveIndices == DataManager.DataType.All)
+                        RogueEssence.Dev.DevHelper.ResaveBase(resaveDiff);
+                    RogueEssence.Dev.DevHelper.Resave(resaveIndices, resaveDiff);
+
+                    //reindex must follow
+
+                    RogueEssence.Dev.DevHelper.RunIndexing(resaveIndices);
+
+                    DataManager.Instance.UniversalData = DataManager.LoadData<TypeDict<BaseData>>(DataManager.MISC_PATH, "Index", DataManager.DATA_EXT);
+                    RogueEssence.Dev.DevHelper.RunExtraIndexing(resaveIndices);
+                    return;
+                }
+
                 if (reserializeIndices != DataManager.DataType.None)
                 {
                     DiagManager.Instance.LogInfo("Beginning Reserialization");
@@ -392,6 +515,7 @@ namespace PMDC
 
                     DataManager.InitDataDirs(PathMod.ModPath(""));
                     //RogueEssence.Dev.DevHelper.ConvertAssetNames();
+                    PMDC.Dev.DevHelper.ConvertLua();
 
                     //load conversions a second time because it mightve changed
                     DataManager.Instance.LoadConversions();
@@ -448,6 +572,23 @@ namespace PMDC
                     return;
                 }
 
+                if (printWiki)
+                {
+                    //print the guidebook in the chosen language
+                    //we need the datamanager for this
+                    LuaEngine.InitInstance();
+                    LuaEngine.Instance.LoadScripts();
+                    DataManager.InitInstance();
+                    DataManager.Instance.InitData();
+                    //just print a guidebook and exit
+                    //StrategyGuide.PrintMoveWiki();
+                    StrategyGuide.PrintItemWiki();
+                    //StrategyGuide.PrintAbilityWiki();
+                    //StrategyGuide.PrintMonsterWiki();
+                    //StrategyGuide.PrintDungeonWiki();
+                    return;
+                }
+
 
                 //Dev.ImportManager.PrintMoveUsers(PathMod.DEV_PATH+"moves.txt");
                 //Dev.ImportManager.PrintAbilityUsers(PathMod.DEV_PATH+"abilities.txt");
@@ -459,7 +600,7 @@ namespace PMDC
                 if (DiagManager.Instance.DevMode)
                 {
                     InitDataEditor();
-                    AppBuilder builder = RogueEssence.Dev.Program.BuildAvaloniaApp();
+                    AppBuilder builder = BuildAvaloniaApp();
                     builder.StartWithClassicDesktopLifetime(args);
                 }
                 else
@@ -491,7 +632,6 @@ namespace PMDC
         public static void InitDataEditor()
         {
             DataEditor.Init();
-
             DataEditor.AddEditor(new StatusEffectEditor());
             DataEditor.AddEditor(new MapStatusEditor());
 
@@ -552,8 +692,10 @@ namespace PMDC
             DataEditor.AddEditor(new PromoteBranchEditor());
 
             DataEditor.AddEditor(new MonsterIDEditor());
-
+            
             DataEditor.AddEditor(new TeamMemberSpawnEditor());
+            DataEditor.AddEditor(new TeamMemberSpawnSimpleEditor());
+
             DataEditor.AddEditor(new MobSpawnEditor());
             DataEditor.AddEditor(new MobSpawnWeakEditor());
             DataEditor.AddEditor(new MobSpawnAltColorEditor());

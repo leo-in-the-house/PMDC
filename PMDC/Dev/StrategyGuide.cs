@@ -8,20 +8,41 @@ using RogueEssence.Dungeon;
 using RogueEssence.LevelGen;
 using RogueEssence;
 using PMDC.Data;
+using PMDC.Dungeon;
 
 namespace PMDC.Dev
 {
     public static class StrategyGuide
     {
         private const int TOTAL_CHUNKS = 60;
-        
+
+        private static void WriteToWiki(string name, string content)
+        {
+            if (!Directory.Exists(PathMod.APP_PATH + "WIKI/"))
+                Directory.CreateDirectory(PathMod.APP_PATH + "WIKI/");
+
+            string endPath = Path.Join(PathMod.APP_PATH, "WIKI/", name + ".txt");
+            string endDirectory = Path.GetDirectoryName(endPath);
+
+            if (!Directory.Exists(endDirectory))
+                Directory.CreateDirectory(endDirectory);
+
+            using (var fstream = File.CreateText(endPath))
+            {
+                fstream.WriteLine(content);
+
+                fstream.Flush();
+                fstream.Close();
+            }
+        }
+
         private static void writeCSVGuide(string name, List<string[]> stats)
         {
 
-            if (!Directory.Exists(PathMod.ExePath + "GUIDE/"))
-                Directory.CreateDirectory(PathMod.ExePath + "GUIDE/");
+            if (!Directory.Exists(PathMod.APP_PATH + "GUIDE/"))
+                Directory.CreateDirectory(PathMod.APP_PATH + "GUIDE/");
 
-            using (StreamWriter file = new StreamWriter(PathMod.ExePath + "GUIDE/" + name + ".csv"))
+            using (StreamWriter file = new StreamWriter(PathMod.APP_PATH + "GUIDE/" + name + ".csv"))
             {
                 foreach (string[] stat in stats)
                     file.WriteLine(String.Join("\t", stat));
@@ -178,10 +199,10 @@ namespace PMDC.Dev
                 "		<footer>PMDC v"+ Versioning.GetVersion().ToString() + "</footer>\n" +
                 "	</body>\n" +
                 "</html>\n";
-            if (!Directory.Exists(PathMod.ExePath + "GUIDE/"))
-                Directory.CreateDirectory(PathMod.ExePath + "GUIDE/");
+            if (!Directory.Exists(PathMod.APP_PATH + "GUIDE/"))
+                Directory.CreateDirectory(PathMod.APP_PATH + "GUIDE/");
 
-            using (StreamWriter file = new StreamWriter(PathMod.ExePath + "GUIDE/" + name + ".html"))
+            using (StreamWriter file = new StreamWriter(PathMod.APP_PATH + "GUIDE/" + name + ".html"))
                 file.Write(html);
 
             Console.WriteLine();
@@ -210,6 +231,30 @@ namespace PMDC.Dev
                 writeCSVGuide("Items", stats);
             else
                 writeHTMLGuide("Items", stats);
+        }
+
+        public static void PrintItemWiki()
+        {
+            List<string> itemKeys = DataManager.Instance.DataIndices[DataManager.DataType.Item].GetOrderedKeys(true);
+            for (int ii = 0; ii < itemKeys.Count; ii++)
+            {
+                ProgressBar("Creating item pages...", "Done.", TOTAL_CHUNKS, ii, itemKeys.Count);
+                string key = itemKeys[ii];
+                ItemData entry = DataManager.Instance.GetItem(key);
+                if (entry.Released)
+                {
+                    string localName = entry.Name.ToLocal();
+                    string fileContent = "{{{{{1|ItemData}}}" +
+                        "\r\n|item_name=" + localName +
+                        "\r\n|sprite=" + entry.Sprite +
+                        "\r\n|item_id=" + key +
+                        "\r\n|is_edible=" + entry.ItemStates.Contains<EdibleState>() +
+                        "\r\n|value=" + entry.Price +
+                        "\r\n}}";
+
+                    WriteToWiki(localName + "/Data", fileContent);
+                }
+            }
         }
 
         public static void PrintMoveGuide(bool csv)
@@ -327,11 +372,11 @@ namespace PMDC.Dev
                 for (int jj = 0; jj < summary.Forms.Count; jj++)
                 {
                     MonsterFormData formData = (MonsterFormData)data.Forms[jj];
+                    if (formData.Temporary)
+                        continue;
+
                     if (summary.Released && formData.Released)
                     {
-                        if (formData.Temporary)
-                            continue;
-
                         string encounterStr = "UNKNOWN";
                         MonsterID monId = new MonsterID(key, jj, "", Gender.Unknown);
                         if (foundSpecies.ContainsKey(monId))
@@ -441,6 +486,7 @@ namespace PMDC.Dev
 
         public static void ProgressBar(string message, string ending, int totalChunks, int progress, int total)
         {
+#if !DEBUG
             // offset the progress by 1;
             progress++;
             Console.CursorVisible = false;
@@ -486,6 +532,7 @@ namespace PMDC.Dev
             }
 
             Console.Write(display + spacer + currMessage);
+#endif
         }
     }
 }

@@ -79,6 +79,7 @@ namespace PMDC.Dungeon
         public int AttackRange;
         public int StatusRange;
         public int SelfStatusRange;
+        public bool AbandonRangeOnHit;
 
 
         [OnDeserialized]
@@ -87,6 +88,10 @@ namespace PMDC.Dungeon
             if (Serializer.OldVersion < new Version(0, 7, 14))
             {
                 SelfStatusRange = 4;
+            }
+            if (Serializer.OldVersion < new Version(0, 8, 4))
+            {
+                AbandonRangeOnHit = true;
             }
         }
 
@@ -148,6 +153,7 @@ namespace PMDC.Dungeon
             this.AttackRange = attackRange;
             this.StatusRange = statusRange;
             this.SelfStatusRange = selfStatusRange;
+            this.AbandonRangeOnHit = true;
         }
 
         protected AIPlan(AIPlan other)
@@ -158,6 +164,7 @@ namespace PMDC.Dungeon
             SelfStatusRange = other.SelfStatusRange;
             StatusRange = other.StatusRange;
             AttackRange = other.AttackRange;
+            AbandonRangeOnHit = other.AbandonRangeOnHit;
         }
 
         /// <summary>
@@ -235,12 +242,10 @@ namespace PMDC.Dungeon
                 else if (seenChar.Tactic.ID == "wait_attack")//wait attack; NOTE: specialized AI code!
                     return false;
             }
-            
-            if (seenChar.GetStatusEffect("was_hurt_last_turn") == null)
-            {
-                if (seenChar.Tactic.ID == "tit_for_tat")//tit for tat; NOTE: specialized AI code!
-                    return false;
-            }
+
+            if (seenChar.Tactic.ID == "tit_for_tat")//tit for tat; NOTE: specialized AI code!
+                return false;
+
             return true;
         }
 
@@ -1441,10 +1446,10 @@ namespace PMDC.Dungeon
         }
 
 
-        private void modifyActionHitboxes(Character controlledChar, List<Character> seenChars, Dir8 dir, ref string skillIndex, ref SkillData entry, ref  int rangeMod, ref CombatAction hitboxAction, ref ExplosionData explosion)
+        private void modifyActionHitboxes(Character controlledChar, List<Character> seenChars, Dir8 dir, ref string skillIndex, ref SkillData entry, ref int rangeMod, ref CombatAction hitboxAction, ref ExplosionData explosion)
         {
             //check for passives that modify range
-            DataManager.Instance.UniversalEvent.GetRange(controlledChar, ref entry);
+            rangeMod = DataManager.Instance.UniversalEvent.GetRange(controlledChar, ref entry);
 
             //check for moves that want to wait until within range
             if (skillIndex == "razor_wind")//wait until enemy is two+ tiles deep in the hitbox, to prevent immediate walk-away; NOTE: specialized AI code!
@@ -1893,9 +1898,9 @@ namespace PMDC.Dungeon
                             return 0;
                         else if (target.Tactic.ID == "wait_attack")//wait attack; NOTE: specialized AI code!
                             return 0;
-                        else if (target.Tactic.ID == "tit_for_tat")//tit for tat; NOTE: specialized AI code!
-                            return 0;
                     }
+                    if (target.Tactic.ID == "tit_for_tat")//tit for tat; NOTE: specialized AI code!
+                        return 0;
                 }
                 else
                 {
@@ -2099,9 +2104,13 @@ namespace PMDC.Dungeon
         {
             int delta = GetTargetBattleDataEffect(controlledChar, data, seenChars, target, 0, 1, defaultVal);
 
-            //special case for self-buffing
-            if (controlledChar.GetStatusEffect("last_targeted_by") == null)
+            if (AbandonRangeOnHit && controlledChar.GetStatusEffect("last_targeted_by") != null)
             {
+                //we no longer abide by range limitation when hit
+            }
+            else
+            {
+                //abide by range limitation, otherwise
                 Alignment targetAlignment = DungeonScene.Instance.GetMatchup(controlledChar, target);
                 if (data.Category == BattleData.SkillCategory.Status || data.Category == BattleData.SkillCategory.None)
                 {
@@ -2546,6 +2555,14 @@ namespace PMDC.Dungeon
                             {
                                 if (statusTarget.StatusEffects.ContainsKey("last_used_move_slot"))
                                     addedWorth = 100;
+                            }
+                            else if (giveEffect.StatusID == "area_counter")//disable NOTE: specialized code!
+                            {
+                                addedWorth = 100;
+                            }
+                            else if (giveEffect.StatusID == "weakness_drain")//disable NOTE: specialized code!
+                            {
+                                addedWorth = 100;
                             }
                             else
                             {
