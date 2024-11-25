@@ -223,7 +223,21 @@ namespace PMDC.Dungeon
                     if (context.User.MustHitNext || DataManager.Instance.Save.Rand.Next(0, 100) < acc)
                         hit = true;
                 }
-                context.User.MustHitNext = !hit;
+                if (hit)
+                {
+                    if (context.User == context.Target)
+                    {
+                        // Don't reset the miss chain if the target hit is the self
+                    }
+                    else if (context.ActionType == BattleActionType.Trap)
+                    {
+                        // Don't reset the miss chain if the action is a trap
+                    }
+                    else
+                        context.User.MissChain = 0;
+                }
+                else
+                    context.User.MissChain++;
 
                 if (hit)
                 {
@@ -8629,8 +8643,11 @@ namespace PMDC.Dungeon
                     countState.Count++;
                 if (context.User.CharStates.Contains<PoisonHealState>())
                 {
-                    DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_POISON_HEAL").ToLocal(), context.User.GetDisplayName(false)));
-                    yield return CoroutineManager.Instance.StartCoroutine(context.User.RestoreHP(Math.Max(1, context.User.MaxHP / RestoreHPFraction)));
+                    if (context.User.HP < context.User.MaxHP)
+                    {
+                        DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_POISON_HEAL").ToLocal(), context.User.GetDisplayName(false)));
+                        yield return CoroutineManager.Instance.StartCoroutine(context.User.RestoreHP(Math.Max(1, context.User.MaxHP / RestoreHPFraction), false));
+                    }
                 }
                 else
                 {
@@ -13995,7 +14012,7 @@ namespace PMDC.Dungeon
     }
 
     /// <summary>
-    /// Event that removes its status from the user 
+    /// Event that removes its status from the user, automatically determining which ones they are
     /// This event can only be used on statuses
     /// </summary>
     [Serializable]
@@ -14019,7 +14036,7 @@ namespace PMDC.Dungeon
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
-            yield return CoroutineManager.Instance.StartCoroutine(context.User.RemoveStatusEffect(((StatusEffect)owner).ID, ShowMessage));
+            yield return CoroutineManager.Instance.StartCoroutine(ownerChar.RemoveStatusEffect(((StatusEffect)owner).ID, ShowMessage));
         }
     }
     
@@ -15157,6 +15174,8 @@ namespace PMDC.Dungeon
         {
             Character target = (AffectTarget ? context.Target : context.User);
             Character origin = (AffectTarget ? context.User : context.Target);
+            if (target.Dead || origin.Dead)
+                yield break;
 
             if (target.CharStates.Contains<AnchorState>())
                 yield break;
@@ -17970,7 +17989,7 @@ namespace PMDC.Dungeon
             if (tile == null)
                 yield break;
 
-            if (tile.Data.GetData().BlockType == TerrainData.Mobility.Passable && String.IsNullOrEmpty(tile.Effect.ID))
+            if (((TerrainData)tile.Data.GetData()).BlockType == TerrainData.Mobility.Passable && String.IsNullOrEmpty(tile.Effect.ID))
             {
                 tile.Effect = new EffectTile(TrapID, true, tile.Effect.TileLoc);
                 tile.Effect.Owner = ZoneManager.Instance.CurrentMap.GetTileOwner(context.User);
@@ -18029,7 +18048,7 @@ namespace PMDC.Dungeon
             {
                 Loc endLoc = baseLoc + dir.GetLoc();
                 Tile tile = ZoneManager.Instance.CurrentMap.Tiles[endLoc.X][endLoc.Y];
-                if (tile.Data.GetData().BlockType == TerrainData.Mobility.Passable && String.IsNullOrEmpty(tile.Effect.ID))
+                if (((TerrainData)tile.Data.GetData()).BlockType == TerrainData.Mobility.Passable && String.IsNullOrEmpty(tile.Effect.ID))
                 {
                     tile.Effect = new EffectTile(TrapID, true, endLoc);
                     tile.Effect.Owner = ZoneManager.Instance.CurrentMap.GetTileOwner(context.Target);

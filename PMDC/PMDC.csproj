@@ -4,7 +4,7 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>PMDC</RootNamespace>
     <AssemblyName>PMDC</AssemblyName>
-    <AssemblyVersion>0.8.5</AssemblyVersion>
+    <AssemblyVersion>0.8.7</AssemblyVersion>
     <AssemblyCopyright>Audino 2024</AssemblyCopyright>
     <TargetFramework>net8.0</TargetFramework>
     <Deterministic>true</Deterministic>
@@ -44,13 +44,26 @@
     <ProjectReference Include="..\RogueEssence\RogueEssence.Editor.Avalonia\RogueEssence.Editor.Avalonia.csproj" />
     <ProjectReference Include="..\RogueEssence\RogueEssence\RogueEssence.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Update="Properties\Resources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Update="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <DefineConstants>TRACE;DEBUG</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
     <DefineConstants>TRACE</DefineConstants>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <DocumentationFile>bin\x64\Debug\net5.0\PMDC.xml</DocumentationFile>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DocumentationFile>bin\Debug\net8.0\PMDC.xml</DocumentationFile>
   </PropertyGroup>
 </Project>
