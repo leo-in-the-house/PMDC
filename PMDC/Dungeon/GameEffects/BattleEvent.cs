@@ -12,6 +12,9 @@ using PMDC.Dev;
 using PMDC.Data;
 using System.Runtime.Serialization;
 using Newtonsoft.Json;
+using NLua;
+using RogueEssence.Script;
+using System.Linq;
 
 namespace PMDC.Dungeon
 {
@@ -2309,7 +2312,7 @@ namespace PMDC.Dungeon
         public AbsorbElementEvent(string element, params BattleEvent[] effects)
             : this(element, false, effects) { }
         public AbsorbElementEvent(string element, bool singleDraw, params BattleEvent[] effects)
-            : this(element, false, false, new EmptyFiniteEmitter(), "", effects) { }
+            : this(element, singleDraw, false, new EmptyFiniteEmitter(), "", effects) { }
         public AbsorbElementEvent(string element, bool singleDraw, bool giveMsg, FiniteEmitter emitter, string sound, params BattleEvent[] effects)
             : this()
         {
@@ -2831,6 +2834,7 @@ namespace PMDC.Dungeon
         protected PinchNeededEvent(PinchNeededEvent other) : this()
         {
             Denominator = other.Denominator;
+            AffectTarget = other.AffectTarget;
             foreach (BattleEvent battleEffect in other.BaseEvents)
                 BaseEvents.Add((BattleEvent)battleEffect.Clone());
         }
@@ -6943,6 +6947,38 @@ namespace PMDC.Dungeon
     }
 
     /// <summary>
+    /// Event that cancels the action (intended to be used with -Needed events)
+    /// </summary>
+    [Serializable]
+    public class CancelActionEvent : BattleEvent
+    {
+        /// <summary>
+        /// The message displayed in the dungeon log 
+        /// </summary>
+        [StringKey(0, true)]
+        public StringKey Message;
+
+        public CancelActionEvent() { }
+        public CancelActionEvent(StringKey message) : this()
+        {
+            Message = message;
+        }
+        protected CancelActionEvent(CancelActionEvent other) : this()
+        {
+            Message = other.Message;
+        }
+        public override GameEvent Clone() { return new CancelActionEvent(this); }
+
+        public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
+        {
+            if (Message.IsValid())
+                DungeonScene.Instance.LogMsg(Text.FormatGrammar(Message.ToLocal(), context.User.GetDisplayName(false)));
+            context.CancelState.Cancel = true;
+            yield break;
+        }
+    }
+
+    /// <summary>
     /// Event that prevents the character from doing certain battle action types
     /// </summary>
     [Serializable]
@@ -10211,7 +10247,7 @@ namespace PMDC.Dungeon
             yield break;
         }
     }
-    
+
     /// <summary>
     /// Event that modifies the damage multiplier if the character is inflicted with a major status condition
     /// </summary> 
@@ -10883,7 +10919,7 @@ namespace PMDC.Dungeon
                     return context.GetContextStateMult<DmgMult>().Multiply(0);
 
                 int power = context.Data.SkillStates.GetWithDefault<BasePowerState>().Power;
-                int damage = context.GetContextStateMult<DmgMult>().Multiply((context.GetContextStateInt<UserLevel>(0) / 3 + 6) * attackStat * power / defenseStat / 50 * DataManager.Instance.Save.Rand.Next(90, 101) / 100);
+                int damage = context.GetContextStateMult<DmgMult>().Multiply((context.GetContextStateInt<UserLevel>(0) / 3 + 6) * attackStat * power) / defenseStat / 50 * DataManager.Instance.Save.Rand.Next(90, 101) / 100;
 
                 if (!(context.ActionType == BattleActionType.Skill && context.Data.ID == DataManager.Instance.DefaultSkill))
                     damage = Math.Max(1, damage);
@@ -11480,7 +11516,7 @@ namespace PMDC.Dungeon
     }
 
     /// <summary>
-    /// Event that groups multiple battle events into one event, but only applies if the target's type matches the specified type
+    /// Event that groups multiple battle events into one event, but only applies if the character's type matches the specified type
     /// </summary>
     [Serializable]
     public class CharElementNeededEvent : BattleEvent
@@ -11498,11 +11534,23 @@ namespace PMDC.Dungeon
         [DataType(0, DataManager.DataType.Element, false)]
         public string NeededElement;
 
-        public CharElementNeededEvent() { BaseEvents = new List<BattleEvent>(); NeededElement = ""; }
-        public CharElementNeededEvent(string element, params BattleEvent[] effects)
+        /// <summary>
+        /// Whether to run the type check on the user or target
+        /// </summary> 
+        public bool AffectTarget;
+
+        /// <summary>
+        /// If set, the events will only be applied if none of the character's types match the specified type
+        /// </summary>
+        public bool Inverted;
+
+        public CharElementNeededEvent() { BaseEvents = new List<BattleEvent>(); NeededElement = ""; AffectTarget = true; Inverted = false; }
+        public CharElementNeededEvent(string element, bool affectTarget, bool inverted, params BattleEvent[] effects)
             : this()
         {
             NeededElement = element;
+            AffectTarget = affectTarget;
+            Inverted = inverted;
             foreach (BattleEvent effect in effects)
                 BaseEvents.Add(effect);
         }
@@ -11518,7 +11566,8 @@ namespace PMDC.Dungeon
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
-            if (context.Target.HasElement(NeededElement))
+            Character character = AffectTarget ? context.Target : context.User;
+            if (Inverted ^ character.HasElement(NeededElement)) //if inverted, must not correspond. If not inverted, must correspond
             {
                 foreach (BattleEvent battleEffect in BaseEvents)
                     yield return CoroutineManager.Instance.StartCoroutine(battleEffect.Apply(owner, ownerChar, context));
@@ -14739,36 +14788,45 @@ namespace PMDC.Dungeon
         /// The total distance to hop
         /// </summary>
         public int Distance;
-        
+
         /// <summary>
         /// Whether to hop forwards or backwards
         /// </summary>
         public bool Reverse;
 
+        /// <summary>
+        /// Whether to affect the user or target
+        /// </summary>
+        public bool AffectTarget;
+
         public HopEvent() { }
         public HopEvent(int distance, bool reverse)
         {
-            Distance = distance; Reverse = reverse;
+            Distance = distance;
+            Reverse = reverse;
         }
         protected HopEvent(HopEvent other)
         {
             Distance = other.Distance;
             Reverse = other.Reverse;
+            AffectTarget = other.AffectTarget;
         }
         public override GameEvent Clone() { return new HopEvent(this); }
 
 
         public override IEnumerator<YieldInstruction> Apply(GameEventOwner owner, Character ownerChar, BattleContext context)
         {
-            if (context.User.Dead)
+            Character target = (AffectTarget ? context.Target : context.User);
+
+            if (target.Dead)
                 yield break;
             //jump back a number of spaces
-            if (context.User.CharStates.Contains<AnchorState>())
-                DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_ANCHORED").ToLocal(), context.User.GetDisplayName(false)));
+            if (target.CharStates.Contains<AnchorState>())
+                DungeonScene.Instance.LogMsg(Text.FormatGrammar(new StringKey("MSG_ANCHORED").ToLocal(), target.GetDisplayName(false)));
             else
             {
-                Dir8 hopDir = (Reverse ? context.User.CharDir.Reverse() : context.User.CharDir);
-                yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.JumpTo(context.User, hopDir, Distance));
+                Dir8 hopDir = (Reverse ? target.CharDir.Reverse() : target.CharDir);
+                yield return CoroutineManager.Instance.StartCoroutine(DungeonScene.Instance.JumpTo(target, hopDir, Distance));
             }
         }
     }
@@ -19365,6 +19423,7 @@ namespace PMDC.Dungeon
                 emitter.SetupEmit(member.CharLoc * GraphicsManager.TileSize + new Loc(GraphicsManager.TileSize / 2), member.CharLoc * GraphicsManager.TileSize + new Loc(GraphicsManager.TileSize / 2), member.CharDir);
                 DungeonScene.Instance.CreateAnim(emitter, DrawLayer.NoDraw);
                 DungeonScene.Instance.AddCharToTeam(Faction.Player, 0, false, member);
+                member.Absentee = false;
                 member.Tactic = new AITactic(member.Tactic);
                 member.RefreshTraits();
                 member.Tactic.Initialize(member);
@@ -19716,6 +19775,8 @@ namespace PMDC.Dungeon
         {
             GameManager.Instance.Fanfare("Fanfare/JoinTeam");
             DungeonScene.Instance.RemoveChar(targetChar);
+            //should be default false, set this just in case
+            targetChar.Absentee = false;
             AITactic tactic = DataManager.Instance.GetAITactic(DataManager.Instance.DefaultAI);
             targetChar.Tactic = new AITactic(tactic);
             DungeonScene.Instance.AddCharToTeam(Faction.Player, 0, false, targetChar);
@@ -20061,6 +20122,4 @@ namespace PMDC.Dungeon
 
         protected override PriorityList<BattleEvent> GetEvents(ItemData entry) => entry.OnHitTiles;
     }
-
 }
-
